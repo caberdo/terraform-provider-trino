@@ -1,0 +1,10 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https?://(registry\\.terraform\\.io|opentofu\\.org|trino\\.io|github\\.com|localhost)"
+    },
+    {
+      "pattern": "^https?://(api\\.securityscorecards\\.dev|scorecard\\.dev)"
+    }
+  ]
+}

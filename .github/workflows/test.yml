@@ -1,0 +1,228 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          args: --config .golangci.yml
+
+      - name: Run Gosec Security Scanner
+        id: gosec
+        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0
+        continue-on-error: true
+        env:
+          GOTOOLCHAIN: auto
+        with:
+          args: -fmt sarif -out gosec.sarif -exclude-dir=vendor -tests=false ./
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        if: always() && hashFiles('gosec.sarif') != ''
+        with:
+          sarif_file: gosec.sarif
+
+      - name: Fail on Gosec findings
+        if: always() && steps.gosec.outcome == 'failure'
+        run: |
+          {
+            echo "## Gosec Security Scanner Found Issues"
+            echo ""
+            if [ -f gosec.sarif ]; then
+              echo "| Rule | File | Line | Description |"
+              echo "|------|------|------|-------------|"
+              jq -r '.runs[0].results[] | "| \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri) | \(.locations[0].physicalLocation.region.startLine) | \(.message.text) |"' gosec.sarif
+            fi
+            echo ""
+            echo "See the **Security** tab for full details."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Verify go.mod is tidy and module hashes match
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
+
+      - name: Cross-platform build
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=darwin GOARCH=arm64 go build ./...
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "~> 1.9"
+          terraform_wrapper: false
+
+      - name: Validate examples
+        env:
+          REQUIRE_TERRAFORM: "1"
+        run: ./scripts/validate-examples.sh
+
+      - name: Check generated docs are up to date
+        run: |
+          go generate ./...
+          git diff --exit-code -- docs/
+
+      - name: Run tests
+        run: go test -v -race -covermode=atomic -coverprofile=coverage.out ./internal/...
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [[ ! -f coverage.out ]]; then
+            echo "No coverage profile: the test step failed before writing one." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Coverage"
+            echo ""
+            echo "Unit tests only: acceptance tests require \`TF_ACC\` and a live Trino coordinator."
+            echo ""
+            ./scripts/coverage-summary.sh coverage.out
+          } >> "$GITHUB_STEP_SUMMARY"
+          ./scripts/coverage-summary.sh coverage.out
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
+
+  trino_versions:
+    name: Supported Trino Versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only the acceptance job consumes this, and that job only runs on main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+      latest: ${{ steps.read.outputs.latest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the supported versions into a JSON array
+        id: read
+        run: |
+          list=$(jq -R -s -c 'split("\n") | map(select(test("\\S")))' .github/trino-versions.txt)
+          latest=$(grep -v '^[[:space:]]*$' .github/trino-versions.txt | sort -V | tail -n 1)
+          if [[ -z "$latest" ]]; then
+            echo "no supported Trino version found in .github/trino-versions.txt" >&2
+            exit 1
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+  acceptance:
+    name: Acceptance Tests (Trino ${{ matrix.trino }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs:
+      - test
+      - trino_versions
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        # Single source of truth: .github/trino-versions.txt, also read by
+        # `make testacc-matrix`.
+        trino: ${{ fromJSON(needs.trino_versions.outputs.list) }}
+    env:
+      TRINO_VERSION: ${{ matrix.trino }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      # The acceptance container writes coverage-acceptance.out into the mounted
+      # worktree; the unit profile is produced here so both can be merged into
+      # the one statement-coverage number the project publishes.
+      - name: Unit-test coverage
+        run: go test -count=1 -skip '^TestAcc' -covermode=atomic -coverprofile=coverage.out ./internal/...
+
+      - name: Run acceptance tests
+        run: docker compose run --rm test
+
+      - name: Tear down the acceptance environment
+        if: always()
+        run: docker compose down -v
+
+      - name: Combined coverage (unit + acceptance)
+        if: always()
+        run: |
+          if [[ ! -f coverage.out || ! -f coverage-acceptance.out ]]; then
+            echo "Incomplete coverage profiles: unit \`coverage.out\` and acceptance" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`coverage-acceptance.out\` are both required; one is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          ./scripts/merge-coverage.sh coverage-union.out coverage.out coverage-acceptance.out
+          {
+            echo "## Coverage (unit + acceptance)"
+            echo ""
+            echo "\`coverage.out\` and \`coverage-acceptance.out\` merged by \`scripts/merge-coverage.sh\`."
+            echo ""
+            ./scripts/coverage-summary.sh coverage-union.out
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Coverage gate (unit + acceptance)
+        if: matrix.trino == needs.trino_versions.outputs.latest
+        run: ./scripts/coverage-gate.sh coverage-union.out

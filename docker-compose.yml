@@ -1,0 +1,68 @@
+services:
+  trino:
+    # Override to test another supported server version:
+    # TRINO_VERSION=476 docker compose run --rm test
+    image: trinodb/trino:${TRINO_VERSION:-484}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./test/acceptance/trino/etc:/etc/trino:ro
+      - ./test/acceptance/trino/healthcheck.sh:/usr/local/bin/trino-healthcheck.sh:ro
+    healthcheck:
+      # Waits for `starting:false`, not just the first HTTP response; see the
+      # script for why the check is not inline.
+      test: ["CMD", "bash", "/usr/local/bin/trino-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # One-shot: creates the `memory` and `hive` catalogs over SQL. Required
+  # because catalog.store=memory makes the coordinator ignore
+  # etc/catalog/*.properties (see test/acceptance/trino/init-catalogs.sh).
+  trino-init:
+    image: trinodb/trino:${TRINO_VERSION:-484}
+    volumes:
+      - ./test/acceptance/trino/init-catalogs.sh:/usr/local/bin/init-catalogs.sh:ro
+    entrypoint: ["bash", "/usr/local/bin/init-catalogs.sh"]
+    depends_on:
+      trino:
+        condition: service_healthy
+
+  test:
+    image: golang:1.27.2
+    volumes:
+      - .:/app
+      - go-modules:/go/pkg/mod
+    working_dir: /app
+    command:
+      - bash
+      - -c
+      - |
+        go mod download && go mod verify
+        # Coverage is collected here because the unit suite alone under-reports
+        # packages whose behaviour is asserted end-to-end against a real server.
+        # The profile lands in the mounted worktree, where `make coverage-merge`
+        # and the acceptance job pick it up.
+        go test -v -timeout 30m \
+          -covermode=atomic -coverprofile=/app/coverage-acceptance.out -coverpkg=./internal/... \
+          ./internal/...
+        status=$$?
+        if [ -f coverage-acceptance.out ]; then
+          echo "Acceptance coverage (covered statements, ./internal/...):"
+          go tool cover -func=coverage-acceptance.out | tail -1
+        fi
+        exit $$status
+    environment:
+      TF_ACC: "1"
+      TRINO_ENDPOINT: "http://trino:8080"
+      TRINO_USER: "admin"
+      TRINO_AUTH: "none"
+      TRINO_CATALOG: "hive"
+      TRINO_TEST_CATALOG: "memory"
+    depends_on:
+      trino-init:
+        condition: service_completed_successfully
+
+volumes:
+  go-modules:
