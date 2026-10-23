@@ -73,11 +73,13 @@ Wave 2 (serial)          ▼
 
 ### Worktree and merge protocol
 
-1. Lead completes Wave 0 on `main` and freezes the contracts in the spec (§5).
+1. Lead completes Wave 0 through a branch and pull request; the
+   `main-protection` ruleset forbids direct pushes to `main`. The lead freezes
+   the contracts in the spec (§5) when Task 3 closes.
 2. Each lane works in its own worktree, branched from the Wave 0 commit:
    `git worktree add ../tptrino-lane-A -b lane/a-catalog <wave0-sha>`.
 3. Lanes never rebase onto each other; they rebase only on `main` if the lead announces a contract change.
-4. Each lane delivers a branch with one commit per task. The lead merges lanes A–F into an integration branch in task order; conflicts are impossible by construction unless a lane wrote outside its paths.
+4. Each lane delivers a branch with one commit per task and opens one PR. The lead merges lanes A–F into `main` in task order through the merge queue; conflicts are impossible by construction unless a lane wrote outside its paths.
 5. If a lane needs a contract change (signature, attribute name, SQL shape, import format), it stops and messages the lead. The lead updates the spec and notifies all lanes; no lane improvises a shared contract.
 6. Wave 2 starts only after all six lanes are merged and the full unit suite is green.
 
@@ -177,6 +179,52 @@ git diff --exit-code -- docs/ || true   # first generation is expected to add fi
 ```bash
 git add -A
 git commit -m "chore: scaffold provider module, tooling and CI"
+```
+
+---
+
+## Task 1b: Enforce required PR checks (ruleset, merge queue, drift check)
+
+**Issue:** #18. **Blocked by:** Task 1. **Must be live before Task 3 closes.**
+
+**Files:**
+- Create: `scripts/lib/workflow-jobs.sh`
+- Create: `scripts/setup-branch-protection.sh`
+- Create: `scripts/check-branch-protection.sh`
+- Create: `.github/workflows/protection-drift.yml`
+- Modify: `.github/workflows/test.yml` (add `merge_group:` so the queue gets checks)
+- Modify: `CONTRIBUTING.md`
+
+**Interfaces:**
+- Produces: `main-protection` repository ruleset requiring `Lint & Security`
+  and `Test`, a merge queue, linear history, no deletion or force-push, and no
+  bypass actors; setup/check scripts that read context names from the workflow
+  job `name:` values instead of guessing them.
+
+- [x] **Step 1: Install the ruleset**
+
+```bash
+./scripts/setup-branch-protection.sh
+./scripts/check-branch-protection.sh
+```
+
+- [x] **Step 2: Verify idempotency and the drift gate**
+
+Run the setup script twice; the check script must exit 0 both times. Set
+`REQUIRED_CONTEXTS="Bogus"` and confirm setup exits non-zero before touching the
+API. Remove one context from the live ruleset (or point the check at a fixture)
+and confirm the check exits non-zero.
+
+- [ ] **Step 3: Prove the gate**
+
+A throwaway PR with an unused import must fail `Lint & Security` with the merge
+button disabled. A `README.md`-only PR must still report both required checks.
+
+- [x] **Step 4: Commit**
+
+```bash
+git add scripts .github/workflows CONTRIBUTING.md docs/superpowers/plans
+git commit -m "ci: require lint and test checks on main and enable merge queue"
 ```
 
 ---

@@ -1,0 +1,100 @@
+name: Branch Protection Drift
+
+# Verifies that the main-protection ruleset still requires the checks that the
+# workflows actually report. Runs weekly and on demand. It opens one issue
+# labelled `ci` on drift and closes it again when the ruleset is back in sync.
+#
+# Reading a repository ruleset needs administration permission, which the
+# default GITHUB_TOKEN does not have. Set the BRANCH_PROTECTION_TOKEN secret to
+# a fine-grained token with "Administration: read" on this repository (or a
+# classic token with `repo`) for this workflow to do real work. Without it the
+# check no-ops with a warning instead of failing forever.
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Check main-protection ruleset
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check branch protection
+        id: check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN || github.token }}
+          BRANCH_PROTECTION_SOFT: "1"
+        run: |
+          set +e
+          ./scripts/check-branch-protection.sh > drift.txt 2>&1
+          code=$?
+          set -e
+          cat drift.txt
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Explain an unreadable ruleset
+        if: steps.check.outputs.code == '3'
+        run: |
+          {
+            echo "## Branch protection not checked"
+            echo ""
+            echo "The rulesets API was not readable. Set the \`BRANCH_PROTECTION_TOKEN\`"
+            echo "secret to a token with administration read permission to enable this check."
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat drift.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: All clear
+        if: steps.check.outputs.code == '0'
+        run: |
+          echo "Branch protection matches the policy." >> "$GITHUB_STEP_SUMMARY"
+          number="$(gh issue list --label ci --state open --search '"Branch protection drift detected" in:title' \
+            --json number,title --jq '.[] | select(.title == "Branch protection drift detected") | .number' | head -n 1)"
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Branch protection is back in sync."
+          fi
+
+      - name: Open or update the drift issue
+        if: steps.check.outputs.code == '1'
+        run: |
+          title="Branch protection drift detected"
+          body="$(mktemp)"
+          {
+            echo "The \`main-protection\` ruleset no longer matches the policy in"
+            echo "\`scripts/check-branch-protection.sh\`."
+            echo ""
+            echo "Run \`./scripts/check-branch-protection.sh\` locally, fix the drift with"
+            echo "\`./scripts/setup-branch-protection.sh\`, and close this issue."
+            echo ""
+            echo '```'
+            cat drift.txt
+            echo '```'
+          } > "$body"
+
+          gh label create ci --force --color 0e8a16 --description "CI and repository automation" >/dev/null 2>&1 || true
+
+          number="$(gh issue list --label ci --state open --search '"Branch protection drift detected" in:title' \
+            --json number,title --jq '.[] | select(.title == "Branch protection drift detected") | .number' | head -n 1)"
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$body"
+          else
+            gh issue create --title "$title" --label ci --body-file "$body"
+          fi
