@@ -215,7 +215,7 @@ Run the setup script twice; the check script must exit 0 both times. Set
 API. Remove one context from the live ruleset (or point the check at a fixture)
 and confirm the check exits non-zero.
 
-- [ ] **Step 3: Prove the gate**
+- [x] **Step 3: Prove the gate**
 
 A throwaway PR with an unused import must fail `Lint & Security` with the merge
 button disabled. A `README.md`-only PR must still report both required checks.
