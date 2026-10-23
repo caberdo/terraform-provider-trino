@@ -1,0 +1,56 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+terraform-provider-trino
+bin/
+dist/
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# CI artifacts
+*.sarif
+sbom.spdx.json
+
+# Agent scratch space (plan ledgers, briefs, review packages)
+.superpowers/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go vendor
+vendor/
+
+# Terraform
+**/.terraform/*
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform-provider-*
+plan.bin
+*.tfvars
+*.log
+*.env
+dev.tfrc
+
+# Secrets / key material
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.keytab
