@@ -273,6 +273,7 @@ func TestValidateCertWithoutKey(t *testing.T) {
 func TestValidateMissingFiles(t *testing.T) {
 	clearTrinoEnv(t)
 	missing := filepath.Join(t.TempDir(), "missing")
+	directory := t.TempDir()
 
 	cases := []struct {
 		name string
@@ -284,6 +285,8 @@ func TestValidateMissingFiles(t *testing.T) {
 		{name: "client key", cfg: Config{Endpoint: "https://x:8443", ClientKeyFile: missing, ClientCert: "pem"}, attr: "client_key_file"},
 		{name: "kerberos keytab", cfg: Config{Endpoint: "https://x:8443", Auth: "kerberos", KerberosKeytab: missing, KerberosPrincipal: "svc", KerberosRealm: "EXAMPLE.COM"}, attr: "kerberos_keytab"},
 		{name: "kerberos config", cfg: Config{Endpoint: "https://x:8443", Auth: "kerberos", KerberosCredentialCache: "FILE:" + missing, KerberosConfigFile: missing}, attr: "kerberos_config_file"},
+		{name: "ca directory", cfg: Config{Endpoint: "https://x:8443", CACertFile: directory}, attr: "ca_cert_file"},
+		{name: "keytab directory", cfg: Config{Endpoint: "https://x:8443", Auth: "kerberos", KerberosKeytab: directory, KerberosPrincipal: "svc", KerberosRealm: "EXAMPLE.COM"}, attr: "kerberos_keytab"},
 	}
 
 	for _, tc := range cases {
@@ -292,6 +295,40 @@ func TestValidateMissingFiles(t *testing.T) {
 				t.Fatalf("expected %s error, got %v", tc.attr, diags)
 			}
 		})
+	}
+}
+
+func TestValidateInvalidBooleanEnv(t *testing.T) {
+	clearTrinoEnv(t)
+
+	for _, tc := range []struct {
+		env  string
+		attr string
+	}{
+		{"TRINO_INSECURE_SKIP_VERIFY", "insecure_skip_verify"},
+		{"TRINO_KERBEROS_USE_CANONICAL_HOSTNAME", "kerberos_use_canonical_hostname"},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			clearTrinoEnv(t)
+			t.Setenv(tc.env, "notabool")
+			if diags := (&Config{Endpoint: "https://x:8443"}).Validate(); !hasAttr(diags, tc.attr) {
+				t.Fatalf("expected %s error, got %v", tc.attr, diags)
+			}
+		})
+	}
+
+	clearTrinoEnv(t)
+	t.Setenv("TRINO_INSECURE_SKIP_VERIFY", "true")
+	t.Setenv("TRINO_KERBEROS_USE_CANONICAL_HOSTNAME", "false")
+	cfg := (&Config{Endpoint: "https://x:8443"}).Resolve()
+	if !cfg.InsecureSkipVerify {
+		t.Fatal("TRINO_INSECURE_SKIP_VERIFY=true was not applied")
+	}
+	if cfg.KerberosUseCanonicalHostname == nil || *cfg.KerberosUseCanonicalHostname {
+		t.Fatal("TRINO_KERBEROS_USE_CANONICAL_HOSTNAME=false was not applied")
+	}
+	if diags := cfg.Validate(); diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
 	}
 }
 

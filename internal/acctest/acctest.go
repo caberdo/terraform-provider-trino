@@ -2,6 +2,7 @@ package acctest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"testing"
@@ -54,14 +55,22 @@ func Executor(t *testing.T) trino.Executor {
 	return executor
 }
 
-var ddlPattern = regexp.MustCompile(`(?i)^\s*CREATE\s+(SCHEMA|TABLE|VIEW|ROLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?([^\s;]+)`)
+var ddlPattern = regexp.MustCompile(`(?i)^\s*CREATE\s+(SCHEMA|TABLE|VIEW|ROLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")*"|[^\s;]+)`)
 
 // Fixture executes setup statements and returns a cleanup that drops the
 // created objects in reverse order. Statements that are not CREATE DDL are
 // ignored by cleanup.
 func Fixture(t *testing.T, statements ...string) func() {
 	t.Helper()
-	executor := Executor(t)
+	cleanup, err := fixture(t, Executor(t), statements...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cleanup
+}
+
+func fixture(t *testing.T, executor trino.Executor, statements ...string) (func(), error) {
+	t.Helper()
 	ctx := context.Background()
 
 	type drop struct {
@@ -70,16 +79,7 @@ func Fixture(t *testing.T, statements ...string) func() {
 	}
 	drops := make([]drop, 0, len(statements))
 
-	for _, statement := range statements {
-		if err := executor.Exec(ctx, statement); err != nil {
-			t.Fatalf("fixture statement %q failed: %v", statement, err)
-		}
-		if match := ddlPattern.FindStringSubmatch(statement); match != nil {
-			drops = append(drops, drop{kind: match[1], name: match[2]})
-		}
-	}
-
-	return func() {
+	cleanup := func() {
 		for i := len(drops) - 1; i >= 0; i-- {
 			statement := "DROP " + drops[i].kind + " IF EXISTS " + drops[i].name
 			if err := executor.Exec(ctx, statement); err != nil {
@@ -87,4 +87,16 @@ func Fixture(t *testing.T, statements ...string) func() {
 			}
 		}
 	}
+
+	for _, statement := range statements {
+		if err := executor.Exec(ctx, statement); err != nil {
+			cleanup()
+			return func() {}, fmt.Errorf("fixture statement %q failed: %w", statement, err)
+		}
+		if match := ddlPattern.FindStringSubmatch(statement); match != nil {
+			drops = append(drops, drop{kind: match[1], name: match[2]})
+		}
+	}
+
+	return cleanup, nil
 }

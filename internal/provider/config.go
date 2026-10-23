@@ -71,6 +71,13 @@ type Config struct {
 	ClientCertFile     string
 	ClientKey          string
 	ClientKeyFile      string
+
+	envErrors []envError
+}
+
+type envError struct {
+	attribute string
+	name      string
 }
 
 type envFallback struct {
@@ -82,6 +89,7 @@ type envFallback struct {
 // auth mode when the attribute does not name one.
 func (c Config) Resolve() Config {
 	out := c
+	out.envErrors = append([]envError(nil), c.envErrors...)
 
 	fallbacks := []envFallback{
 		{value: &out.Endpoint, name: "TRINO_ENDPOINT"},
@@ -117,6 +125,29 @@ func (c Config) Resolve() Config {
 		}
 	}
 
+	if out.KerberosUseCanonicalHostname == nil {
+		value := true
+		if raw := envNonEmpty("TRINO_KERBEROS_USE_CANONICAL_HOSTNAME"); raw != "" {
+			if parsed, err := strconv.ParseBool(raw); err != nil {
+				out.addEnvError("kerberos_use_canonical_hostname", "TRINO_KERBEROS_USE_CANONICAL_HOSTNAME")
+			} else {
+				value = parsed
+			}
+		}
+		out.KerberosUseCanonicalHostname = &value
+	}
+	// A bool cannot distinguish "unset" from "false", so the environment
+	// fallback only applies while the attribute is false.
+	if !out.InsecureSkipVerify {
+		if raw := envNonEmpty("TRINO_INSECURE_SKIP_VERIFY"); raw != "" {
+			if parsed, err := strconv.ParseBool(raw); err != nil {
+				out.addEnvError("insecure_skip_verify", "TRINO_INSECURE_SKIP_VERIFY")
+			} else {
+				out.InsecureSkipVerify = parsed
+			}
+		}
+	}
+
 	if out.Auth == "" {
 		out.Auth = inferAuth(out)
 	}
@@ -136,25 +167,6 @@ func (c Config) Resolve() Config {
 	if out.KerberosServicePrincipalPattern == "" {
 		out.KerberosServicePrincipalPattern = defaultKerberosPattern
 	}
-	if out.KerberosUseCanonicalHostname == nil {
-		value := true
-		if raw := envNonEmpty("TRINO_KERBEROS_USE_CANONICAL_HOSTNAME"); raw != "" {
-			if parsed, err := strconv.ParseBool(raw); err == nil {
-				value = parsed
-			}
-		}
-		out.KerberosUseCanonicalHostname = &value
-	}
-	// A bool cannot distinguish "unset" from "false", so the environment
-	// fallback only applies while the attribute is false.
-	if !out.InsecureSkipVerify {
-		if raw := envNonEmpty("TRINO_INSECURE_SKIP_VERIFY"); raw != "" {
-			if parsed, err := strconv.ParseBool(raw); err == nil {
-				out.InsecureSkipVerify = parsed
-			}
-		}
-	}
-
 	out.SessionProperties = cloneMap(out.SessionProperties)
 	out.ExtraCredentials = cloneMap(out.ExtraCredentials)
 	out.Roles = cloneMap(out.Roles)
@@ -165,6 +177,15 @@ func (c Config) Resolve() Config {
 
 func envNonEmpty(name string) string {
 	return os.Getenv(name)
+}
+
+func (c *Config) addEnvError(attribute, name string) {
+	for _, existing := range c.envErrors {
+		if existing.attribute == attribute && existing.name == name {
+			return
+		}
+	}
+	c.envErrors = append(c.envErrors, envError{attribute: attribute, name: name})
 }
 
 func inferAuth(c Config) string {
@@ -305,6 +326,10 @@ func (c Config) Validate() diag.Diagnostics {
 	validateSessionProperties(&diags, c.SessionProperties)
 	validateRoles(&diags, c.Roles)
 	validateFiles(&diags, c)
+	for _, envErr := range c.envErrors {
+		attributeError(&diags, envErr.attribute, "Environment variable is invalid",
+			envErr.name+" must be true or false.")
+	}
 
 	return diags
 }
@@ -555,6 +580,12 @@ func validateReadable(diags *diag.Diagnostics, attr, value string, credentialCac
 	}
 	path := strings.TrimPrefix(value, "FILE:")
 	if credentialCache && strings.Contains(path, ":") {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		attributeError(diags, attr, "File is not readable",
+			"The configured file does not exist or cannot be read. Check the path and its permissions.")
 		return
 	}
 	file, err := os.Open(path)
