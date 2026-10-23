@@ -940,7 +940,8 @@ with the Trino wire shape (`id`, `columns`, `data`, `nextUri`, `stats`,
   - `memory` — schema lifecycle and property-free schema tests; no access
     control, no roles.
   - `hive` — `hive.metastore=file` (catalog dir `file:///tmp/hive`, which
-    requires `fs.local.enabled=true`), `hive.security=sql-standard`. Roles, role
+    requires `fs.local.enabled=true` on 481+ and `fs.native-local.enabled=true`
+    on 476–480, selected per C21), `hive.security=sql-standard`. Roles, role
     grants and table grants are tested here. The provider config uses
     `user = "admin"` (the file metastore auto-grants `admin` to
     `admin`/`hive`/`hdfs`) and `roles = { hive = "admin" }` (C17).
