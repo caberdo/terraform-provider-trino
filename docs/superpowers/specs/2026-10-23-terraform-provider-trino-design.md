@@ -102,6 +102,7 @@ documented limitation.
 | C18 | Kerberos requires HTTPS; keytab and credential cache are mutually exclusive; the service principal pattern must not name a realm. | The provider validates all three before dialing; the driver's own validators are a second line of defence. SPNEGO is set per request by the driver, so a custom `HTTPClient` does not bypass it. |
 | C19 | OAuth2 client-credentials endpoint discovery exists only on Trino 484+; 476 is supported. | `oauth2_token_endpoint` is required whenever `auth = "oauth2"`, so one provider build works on both. |
 | C20 | The Go driver defaults the Kerberos service name to `trino`; Trino's coordinator convention is `HTTP`. | The provider defaults `kerberos_service_name` to `HTTP` and always sets it explicitly. |
+| C21 | The local filesystem flag for the Hive connector was renamed: `fs.native-local.enabled` on 476–480, `fs.local.enabled` on 481+ (`FileSystemConfig`). Trino rejects a catalog property it does not consume. | Acceptance infrastructure only: `test/acceptance/trino/init-catalogs.sh` picks the spelling from `SELECT version()`. The provider never sets filesystem properties, so this does not affect the resource surface. |
 
 ### Version policy
 
