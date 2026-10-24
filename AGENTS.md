@@ -4,6 +4,10 @@ Guidance for coding agents working in this repository.
 
 ## Read these before changing behaviour
 
+These two documents are kept locally (they live under `docs/superpowers/`,
+which is gitignored) and are not part of the repository; obtain them from the
+maintainer if they are missing:
+
 1. `docs/superpowers/specs/2026-10-23-terraform-provider-trino-design.md` — the
    binding design: constraints, frozen interfaces, resource contracts and the
    read-back matrix.

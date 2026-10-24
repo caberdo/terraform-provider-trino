@@ -6,8 +6,10 @@ Thanks for contributing to the Terraform provider for Trino.
 
 Read, in this order:
 
-1. [`docs/superpowers/specs/2026-10-23-terraform-provider-trino-design.md`](docs/superpowers/specs/2026-10-23-terraform-provider-trino-design.md)
-2. [`docs/superpowers/plans/2026-10-23-terraform-provider-trino-v1.md`](docs/superpowers/plans/2026-10-23-terraform-provider-trino-v1.md)
+1. `docs/superpowers/specs/2026-10-23-terraform-provider-trino-design.md` — kept
+   locally (gitignored); obtain from the maintainer if missing.
+2. `docs/superpowers/plans/2026-10-23-terraform-provider-trino-v1.md` — kept
+   locally (gitignored); obtain from the maintainer if missing.
 3. [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`AGENTS.md`](AGENTS.md)
 
 The spec is the binding authority for interfaces and read-back behaviour. If a
