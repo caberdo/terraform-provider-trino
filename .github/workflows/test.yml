@@ -135,6 +135,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           ./scripts/coverage-summary.sh coverage.out
 
+      # Enforce the coverage floor on every pull request: the `Test` job is a
+      # required context, so a regression below .github/coverage-baseline.txt
+      # fails the PR instead of only surfacing on main/merge-queue.
+      - name: Coverage gate (unit)
+        if: always()
+        run: ./scripts/coverage-gate.sh coverage.out
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

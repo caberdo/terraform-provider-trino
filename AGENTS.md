@@ -57,6 +57,11 @@ with the code they cover.
 - No `panic`, `log.Fatal` or `os.Exit` outside `main`.
 - No secret in a diagnostic, log field, test failure message or committed file.
 - Docs under `docs/` are generated. Never hand-edit them.
+- Coverage must be checked before claiming work is done, and it must never drop
+  below the floor in `.github/coverage-baseline.txt`. Run `make test` (and the
+  acceptance suite where relevant) and confirm `scripts/coverage-gate.sh` passes
+  before opening or merging a pull request; if a change adds uncovered code,
+  add tests or lower the floor deliberately in the same change.
 - Read-back behaviour must match the spec's matrix. Never silently zero an
   unreadable attribute; preserve state.
 
