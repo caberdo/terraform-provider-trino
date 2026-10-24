@@ -11,7 +11,16 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
+	"github.com/caberdo/terraform-provider-trino/internal/datasources/catalogs"
+	"github.com/caberdo/terraform-provider-trino/internal/datasources/roles"
+	"github.com/caberdo/terraform-provider-trino/internal/datasources/schemas"
+	"github.com/caberdo/terraform-provider-trino/internal/datasources/tableprivileges"
 	"github.com/caberdo/terraform-provider-trino/internal/providerdata"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/catalog"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/grantprivileges"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/grantrole"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/role"
+	trinoschema "github.com/caberdo/terraform-provider-trino/internal/resources/schema"
 	"github.com/caberdo/terraform-provider-trino/internal/trino"
 )
 
@@ -270,10 +279,23 @@ func (p *TrinoProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	resp.DataSourceData = data
 }
 
-func (p *TrinoProvider) Resources(context.Context) []func() resource.Resource { return nil }
+func (p *TrinoProvider) Resources(context.Context) []func() resource.Resource {
+	return []func() resource.Resource{
+		catalog.New,
+		trinoschema.New,
+		role.New,
+		grantrole.New,
+		grantprivileges.New,
+	}
+}
 
 func (p *TrinoProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		catalogs.New,
+		schemas.New,
+		roles.New,
+		tableprivileges.New,
+	}
 }
 
 type providerModel struct {

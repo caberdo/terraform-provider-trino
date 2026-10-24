@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 )
 
 func TestNewSetsMetadata(t *testing.T) {
@@ -21,14 +23,51 @@ func TestNewSetsMetadata(t *testing.T) {
 	}
 }
 
-func TestNewHasNoResourcesOrDataSources(t *testing.T) {
+func TestProviderRegistersAllTypes(t *testing.T) {
+	ctx := context.Background()
 	p := New("dev")()
 
-	if got := p.Resources(context.Background()); len(got) != 0 {
-		t.Fatalf("Resources() returned %d entries, want 0", len(got))
+	resourceNames := make(map[string]bool)
+	for _, factory := range p.Resources(ctx) {
+		var resp resource.MetadataResponse
+		factory().Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "trino"}, &resp)
+		resourceNames[resp.TypeName] = true
 	}
-	if got := p.DataSources(context.Background()); len(got) != 0 {
-		t.Fatalf("DataSources() returned %d entries, want 0", len(got))
+	wantResources := []string{
+		"trino_catalog",
+		"trino_schema",
+		"trino_role",
+		"trino_grant_role",
+		"trino_grant_privileges",
+	}
+	if len(resourceNames) != len(wantResources) {
+		t.Fatalf("Resources() returned %d types, want %d: %v", len(resourceNames), len(wantResources), resourceNames)
+	}
+	for _, name := range wantResources {
+		if !resourceNames[name] {
+			t.Fatalf("Resources() is missing %q; got %v", name, resourceNames)
+		}
+	}
+
+	dataSourceNames := make(map[string]bool)
+	for _, factory := range p.DataSources(ctx) {
+		var resp datasource.MetadataResponse
+		factory().Metadata(ctx, datasource.MetadataRequest{ProviderTypeName: "trino"}, &resp)
+		dataSourceNames[resp.TypeName] = true
+	}
+	wantDataSources := []string{
+		"trino_catalogs",
+		"trino_schemas",
+		"trino_roles",
+		"trino_table_privileges",
+	}
+	if len(dataSourceNames) != len(wantDataSources) {
+		t.Fatalf("DataSources() returned %d types, want %d: %v", len(dataSourceNames), len(wantDataSources), dataSourceNames)
+	}
+	for _, name := range wantDataSources {
+		if !dataSourceNames[name] {
+			t.Fatalf("DataSources() is missing %q; got %v", name, dataSourceNames)
+		}
 	}
 }
 
