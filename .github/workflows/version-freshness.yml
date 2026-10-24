@@ -1,0 +1,103 @@
+name: Version matrix freshness
+
+on:
+  schedule:
+    # Monthly, on the first day at 06:00 UTC.
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  freshness:
+    name: Check the Trino release window
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Read-only until the comparison finishes: the workflow never edits the
+      # matrix. It opens (or updates) exactly one issue and a human/agent lands
+      # the bump PR.
+      - name: Compare the matrix with the last five stable releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          current=$(sed 's/[[:space:]]//g' .github/trino-versions.txt | grep -v '^$')
+          floor=$(printf '%s\n' "$current" | head -n 1)
+
+          # Newest first from the API; keep non-prerelease tags, take five.
+          # --slurp is required: without it, --paginate emits one JSON array per
+          # page and jq would take five from *each* page.
+          releases=$(gh api "repos/trinodb/trino/releases?per_page=100" --paginate --slurp)
+          window=$(printf '%s' "$releases" \
+            | jq -r 'add | map(select(.prerelease == false)) | .[0:5] | .[] | [(.tag_name | sub("^v"; "")), (.published_at[0:10])] | @tsv')
+          if [[ -z "$window" ]]; then
+            echo "the GitHub releases API returned no stable Trino releases" >&2
+            exit 1
+          fi
+
+          latest_five=$(printf '%s\n' "$window" | cut -f1 | sort -V)
+          expected=$( { printf '%s\n' "$floor"; printf '%s\n' "$latest_five"; } | sort -V -u)
+          detail=$(printf '%s\n' "$window" | awk -F'\t' '{ printf "- %s released %s\n", $1, $2 }')
+
+          if diff -u <(printf '%s\n' "$current") <(printf '%s\n' "$expected") >/dev/null; then
+            echo "The matrix already covers the last five stable releases."
+            exit 0
+          fi
+
+          echo "The matrix is stale:"
+          diff -u <(printf '%s\n' "$current") <(printf '%s\n' "$expected") || true
+
+          body=$(mktemp)
+          {
+            echo "The acceptance matrix in \`.github/trino-versions.txt\` no longer matches the last five stable Trino releases."
+            echo
+            echo "**Current**"
+            echo '```'
+            printf '%s\n' "$current"
+            echo '```'
+            echo
+            echo "**Expected** (floor \`$floor\` plus the last five stable releases, ascending)"
+            echo '```'
+            printf '%s\n' "$expected"
+            echo '```'
+            echo
+            echo "**Releases**"
+            printf '%s\n' "$detail"
+            echo
+            echo "Update the file, run \`make testacc-matrix\`, and land a PR. This workflow never edits the matrix itself."
+          } > "$body"
+
+          gh label create version-matrix \
+            --description "Trino version matrix" \
+            --color 0e8a16 2>/dev/null || true
+
+          existing=$(gh issue list \
+            --repo "$REPO" \
+            --label version-matrix \
+            --state open \
+            --search 'Trino version matrix is stale in:title' \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [[ -n "$existing" ]]; then
+            gh issue edit "$existing" --repo "$REPO" --body-file "$body"
+            echo "Updated issue #$existing."
+          else
+            gh issue create \
+              --repo "$REPO" \
+              --title "Trino version matrix is stale" \
+              --label version-matrix \
+              --body-file "$body"
+          fi

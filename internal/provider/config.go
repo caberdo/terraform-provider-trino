@@ -600,14 +600,18 @@ func validateReadable(diags *diag.Diagnostics, attr, value string, credentialCac
 func tlsErrorAttribute(err error) string {
 	message := err.Error()
 	switch {
-	case strings.Contains(message, "ca_cert_file"):
+	case strings.HasPrefix(message, "ca_cert_file"):
 		return "ca_cert_file"
-	case strings.Contains(message, "ca_cert"):
+	case strings.HasPrefix(message, "ca_cert"):
 		return "ca_cert"
-	case strings.Contains(message, "client_cert"):
+	// The "requires" errors name both attributes. Match on the prefix so a
+	// missing certificate is not blamed on the key and vice versa.
+	case strings.HasPrefix(message, "client_cert"):
 		return "client_cert"
-	case strings.Contains(message, "client_key"):
+	case strings.HasPrefix(message, "client_key"):
 		return "client_key"
+	case strings.HasPrefix(message, "client certificate"):
+		return "client_cert"
 	default:
 		return "client_cert"
 	}

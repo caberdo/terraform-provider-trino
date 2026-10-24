@@ -238,16 +238,31 @@ func (r *grantPrivilegesResource) Update(ctx context.Context, req resource.Updat
 	grantee := plan.Grantee.ValueString()
 	granteeType := plan.GranteeType.ValueString()
 
-	if turningOn {
-		// Granting the full configured set with the option covers both existing
-		// privileges (whose option is being turned on) and any additions.
-		statement := grantStatement(planPrivileges, on, granteeType, grantee, true)
-		if err := r.data.Executor.Exec(ctx, statement); err != nil {
-			resp.Diagnostics.Append(trino.DiagnosticFor("grant privileges on", objectName(on), err)...)
-			return
+	if turningOff {
+		// Clear the grant option before the re-grant below. On Trino's file
+		// metastore REVOKE GRANT OPTION FOR also drops the privilege, so the
+		// re-grant is what restores the retained set; on a real Hive metastore
+		// it only clears the option and the re-grant is a no-op. Only
+		// privileges that remain need this; removed ones are revoked outright.
+		keep := intersection(statePrivileges, planPrivileges)
+		if len(keep) > 0 {
+			statement := revokeGrantOptionStatement(keep, on, granteeType, grantee)
+			if err := r.data.Executor.Exec(ctx, statement); err != nil {
+				resp.Diagnostics.Append(trino.DiagnosticFor("revoke grant option on", objectName(on), err)...)
+				return
+			}
 		}
-	} else if len(additions) > 0 {
-		statement := grantStatement(additions, on, granteeType, grantee, plan.GrantOption.ValueBool())
+	}
+
+	if turningOn || turningOff || len(additions) > 0 {
+		// Grant the full configured set, not just the additions. Granting an
+		// already-held privilege is a no-op on a merge metastore (Hive) and the
+		// only correct move on a metastore that replaces a grantee's privileges
+		// per statement (Trino's file metastore), where granting just the
+		// additions would silently drop the privileges already held. It also
+		// restores the retained set after the file metastore dropped it while
+		// clearing the grant option above.
+		statement := grantStatement(planPrivileges, on, granteeType, grantee, plan.GrantOption.ValueBool())
 		if err := r.data.Executor.Exec(ctx, statement); err != nil {
 			resp.Diagnostics.Append(trino.DiagnosticFor("grant privileges on", objectName(on), err)...)
 			return
@@ -259,19 +274,6 @@ func (r *grantPrivilegesResource) Update(ctx context.Context, req resource.Updat
 		if err := r.data.Executor.Exec(ctx, statement); err != nil {
 			resp.Diagnostics.Append(trino.DiagnosticFor("revoke privileges on", objectName(on), err)...)
 			return
-		}
-	}
-
-	if turningOff {
-		// Only privileges that remain need their grant option revoked; removed
-		// privileges are revoked entirely above.
-		keep := intersection(statePrivileges, planPrivileges)
-		if len(keep) > 0 {
-			statement := revokeGrantOptionStatement(keep, on, granteeType, grantee)
-			if err := r.data.Executor.Exec(ctx, statement); err != nil {
-				resp.Diagnostics.Append(trino.DiagnosticFor("revoke grant option on", objectName(on), err)...)
-				return
-			}
 		}
 	}
 
@@ -298,15 +300,36 @@ func (r *grantPrivilegesResource) Delete(ctx context.Context, req resource.Delet
 		return
 	}
 
-	statement := revokeStatement(privileges, state.On, state.GranteeType.ValueString(), state.Grantee.ValueString())
-	err := r.data.Executor.Exec(ctx, statement)
-	if err == nil {
-		return
+	grantee := state.Grantee.ValueString()
+	granteeType := state.GranteeType.ValueString()
+
+	if state.GrantOption.ValueBool() {
+		// Trino's file metastore keys a table privilege by its grant-option
+		// flag, so a plain REVOKE of a grant made WITH GRANT OPTION is a silent
+		// no-op there (FileHiveMetastore.revokeTablePrivileges matches the full
+		// HivePrivilegeInfo). Clear the option first: on the file metastore that
+		// also drops the privilege, so the plain REVOKE below is then a no-op;
+		// on a real Hive metastore it only clears the option and the plain
+		// REVOKE removes the privilege. A grant that is already gone is
+		// tolerated.
+		statement := revokeGrantOptionStatement(privileges, state.On, granteeType, grantee)
+		if err := r.data.Executor.Exec(ctx, statement); err != nil && !revokeIsAbsent(err) {
+			resp.Diagnostics.Append(trino.DiagnosticFor("revoke grant option on", objectName(state.On), err)...)
+			return
+		}
 	}
-	if trino.IsNotFound(err) || trino.IsErrorName(err, "NOT_FOUND", "USER_NOT_FOUND", "ROLE_NOT_FOUND", "TABLE_NOT_FOUND", "GRANT_NOT_FOUND") {
-		return
+
+	statement := revokeStatement(privileges, state.On, granteeType, grantee)
+	if err := r.data.Executor.Exec(ctx, statement); err != nil && !revokeIsAbsent(err) {
+		resp.Diagnostics.Append(trino.DiagnosticFor("revoke privileges on", objectName(state.On), err)...)
 	}
-	resp.Diagnostics.Append(trino.DiagnosticFor("revoke privileges on", objectName(state.On), err)...)
+}
+
+// revokeIsAbsent reports whether a REVOKE failed only because there was nothing
+// to revoke: the privilege, grantee or table is already gone. Deleting a grant
+// that no longer exists is success.
+func revokeIsAbsent(err error) bool {
+	return trino.IsNotFound(err) || trino.IsErrorName(err, "NOT_FOUND", "USER_NOT_FOUND", "ROLE_NOT_FOUND", "TABLE_NOT_FOUND", "GRANT_NOT_FOUND")
 }
 
 func (r *grantPrivilegesResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

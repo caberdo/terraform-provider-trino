@@ -54,6 +54,26 @@ results and retries. The provider owns the lifecycle around it:
 - **Version probe** runs `SELECT version()` once per process and is cached; a
   failure is non-fatal and logged.
 
+## Authentication matrix
+
+`internal/provider/config.go` resolves attribute → environment → default,
+infers the mode when `auth` is unset, and validates the cross-field rules before
+any request is made.
+
+| Mode | Credentials | Transport | Failure the provider catches early |
+|---|---|---|---|
+| `none` | none | `http` or `https` | Any password/token/OAuth2 secret set alongside `none` |
+| `basic` | `user` + `password` | `https` only | Password over `http`; missing password |
+| `jwt` | `access_token` | `http` or `https` | Token plus another mode's credentials |
+| `oauth2` | client ID + secret + token endpoint | `http` or `https` | Missing endpoint (476 has no discovery), missing credentials |
+| `kerberos` | principal + realm + keytab **or** ccache | `https` only | Keytab and ccache together, realm in the service pattern, missing realm with a keytab |
+
+TLS options (`ca_cert`/`ca_cert_file`, `client_cert`/`client_cert_file`,
+`client_key`/`client_key_file`, `insecure_skip_verify`) are built once into an
+`*http.Client` and reused for every request. `query_timeout` bounds each
+operation through a per-call context; the driver's own query timeout is set to
+the same value so the server cancels a runaway query even if the client dies.
+
 ## Error taxonomy
 
 `internal/trino` classifies errors by Trino error name (`ErrTrino`). Resources
@@ -73,6 +93,16 @@ translate the classification into diagnostics:
 | L2 — resource logic | CRUD against a scripted fake `Executor` |
 | L3 — protocol | `internal/trino` against a fake `/v1/statement` server |
 | L4 — acceptance | real Trino in Docker, `TF_ACC=1` |
+
+Acceptance fixtures (schemas and tables used by grant tests) are created through
+the same executor in `internal/acctest`, with cleanup, because the provider
+deliberately does not manage tables. The compose environment provides two
+catalogs: `memory` for schema lifecycle and `hive` (file metastore,
+`sql-standard` security) for roles, role grants and table grants. Catalog, role
+and grant tests must **not** skip when `TF_ACC` is set: a missing capability is
+an environment failure, not a pass. `TRINO_EXPECT_VERSION` makes `PreCheck`
+probe `SELECT version()` and fail when the coordinator is not the release under
+test; the matrix itself is selected from `.github/trino-versions.txt`.
 
 Unit tests live in the same package as the code they cover. Acceptance tests
 live in `<name>_test` and must compile with `go vet ./...` even when they are

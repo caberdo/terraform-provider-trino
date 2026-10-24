@@ -60,6 +60,9 @@ services:
       TRINO_AUTH: "none"
       TRINO_CATALOG: "hive"
       TRINO_TEST_CATALOG: "memory"
+      # Set by `make testacc-matrix`/CI so PreCheck fails immediately when the
+      # image tag does not match the version under test.
+      TRINO_EXPECT_VERSION: "${TRINO_EXPECT_VERSION:-}"
     depends_on:
       trino-init:
         condition: service_completed_successfully

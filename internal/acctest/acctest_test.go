@@ -31,6 +31,26 @@ func TestRunFixtureDropsCreatedObjectsInReverse(t *testing.T) {
 	}
 }
 
+func TestRunFixtureDropsQuotedQualifiedObjects(t *testing.T) {
+	fake := &trinotest.FakeExecutor{Steps: []trinotest.Step{{}, {}, {}, {}}}
+
+	cleanup, err := fixture(t, fake,
+		`CREATE SCHEMA "hive"."acc_priv_sales"`,
+		`CREATE TABLE "hive"."acc_priv_sales"."acc_priv_orders" (id bigint)`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+
+	if got := fake.Calls[2].Statement; got != `DROP TABLE IF EXISTS "hive"."acc_priv_sales"."acc_priv_orders"` {
+		t.Fatalf("first drop = %q", got)
+	}
+	if got := fake.Calls[3].Statement; got != `DROP SCHEMA IF EXISTS "hive"."acc_priv_sales"` {
+		t.Fatalf("second drop = %q", got)
+	}
+}
+
 func TestRunFixtureCleansUpAfterPartialFailure(t *testing.T) {
 	fake := &trinotest.FakeExecutor{Steps: []trinotest.Step{
 		{},

@@ -6,11 +6,14 @@
 # The gate fails closed: it exits 2, never 0, for an absent profile or baseline,
 # a baseline that is not a percentage, or a profile with no total line.
 #
+# The gate applies to the unit + protocol profile (`coverage.out`). Acceptance
+# coverage is reported separately; it is environment-dependent and therefore not
+# part of the v1 gate (design §10).
+#
 # Usage: scripts/coverage-gate.sh [profile] [baseline]
-#        scripts/coverage-gate.sh coverage-union.out
 set -euo pipefail
 
-profile="${1:-coverage-union.out}"
+profile="${1:-coverage.out}"
 baseline="${2:-.github/coverage-baseline.txt}"
 
 die() {
@@ -18,7 +21,7 @@ die() {
   exit 2
 }
 
-[[ -f "$profile" ]] || die "profile '$profile' not found; run 'make coverage' and 'make coverage-merge' first"
+[[ -f "$profile" ]] || die "profile '$profile' not found; run 'make coverage' first"
 [[ -f "$baseline" ]] || die "baseline '$baseline' not found"
 
 floor="$(tr -d '[:space:]' < "$baseline")"

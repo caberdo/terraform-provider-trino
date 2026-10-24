@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -12,6 +13,15 @@ import (
 
 	"github.com/caberdo/terraform-provider-trino/internal/provider"
 	"github.com/caberdo/terraform-provider-trino/internal/trino"
+)
+
+const (
+	// hiveRoleCatalog is the acceptance catalog configured with sql-standard
+	// security, which therefore requires an explicit role on every session.
+	hiveRoleCatalog = "hive"
+	// hiveAdminRole is the role sql-standard security auto-grants to the
+	// admin user that the acceptance suite connects as.
+	hiveAdminRole = "admin"
 )
 
 // ProtoV6ProviderFactories wires the provider into terraform-plugin-testing.
@@ -22,7 +32,9 @@ func ProtoV6ProviderFactories() map[string]func() (tfprotov6.ProviderServer, err
 }
 
 // PreCheck skips the test unless acceptance testing is enabled and an endpoint
-// is configured.
+// is configured. When TRINO_EXPECT_VERSION is set it also asserts the server
+// reports that version, so a stale or mis-tagged image fails before any
+// resource test runs instead of producing a confusing capability failure.
 func PreCheck(t *testing.T) {
 	t.Helper()
 	if os.Getenv("TF_ACC") == "" {
@@ -31,10 +43,48 @@ func PreCheck(t *testing.T) {
 	if os.Getenv("TRINO_ENDPOINT") == "" {
 		t.Fatal("TRINO_ENDPOINT must be set for acceptance tests")
 	}
+	if expected := strings.TrimSpace(os.Getenv("TRINO_EXPECT_VERSION")); expected != "" {
+		verifyServerVersion(t, expected)
+	}
+}
+
+// verifyServerVersion fails when the coordinator does not report the version
+// the matrix expects. A mismatch is an environment failure, never a skip.
+func verifyServerVersion(t *testing.T, expected string) {
+	t.Helper()
+	version, err := Executor(t).Version(context.Background())
+	if err != nil {
+		t.Fatalf("TRINO_EXPECT_VERSION=%s: the version probe failed: %v", expected, err)
+	}
+	if !versionMatches(expected, version) {
+		t.Fatalf("TRINO_EXPECT_VERSION=%s but the server reported %q; check the image tag and the compose project", expected, version)
+	}
+}
+
+// versionMatches accepts an exact release or a build suffix such as
+// "484-SNAPSHOT" or "484.1", and rejects a longer number ("4840") or a
+// different release.
+func versionMatches(expected, actual string) bool {
+	expected = strings.TrimSpace(expected)
+	actual = strings.TrimSpace(actual)
+	if expected == "" || actual == "" {
+		return false
+	}
+	if actual == expected {
+		return true
+	}
+	rest := strings.TrimPrefix(actual, expected)
+	return rest != actual && (strings.HasPrefix(rest, "-") || strings.HasPrefix(rest, "."))
 }
 
 // Executor opens a client from the TRINO_* environment for fixtures and
 // out-of-band assertions.
+//
+// The hive acceptance catalog runs with sql-standard security, which
+// auto-grants the `admin` role to the admin/hive/hdfs users (spec C17). That
+// role cannot be supplied through the environment, so every client this helper
+// opens presents it; without it, fixture DDL and assertions against `hive` fail
+// with "Access Denied". The role is ignored by catalogs that have no roles.
 func Executor(t *testing.T) trino.Executor {
 	t.Helper()
 	cfg := (provider.Config{}).Resolve()
@@ -45,6 +95,7 @@ func Executor(t *testing.T) trino.Executor {
 	if diags.HasError() {
 		t.Fatalf("invalid Trino configuration: %s", diags[0].Detail())
 	}
+	opts.Roles = map[string]string{hiveRoleCatalog: hiveAdminRole}
 	executor, err := trino.Open(opts)
 	if err != nil {
 		t.Fatalf("open Trino client: %v", err)
@@ -55,7 +106,11 @@ func Executor(t *testing.T) trino.Executor {
 	return executor
 }
 
-var ddlPattern = regexp.MustCompile(`(?i)^\s*CREATE\s+(SCHEMA|TABLE|VIEW|ROLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")*"|[^\s;]+)`)
+// ddlPattern captures the object kind and the possibly-qualified name of a
+// CREATE DDL statement so the fixture can drop what it created. The name is a
+// dot-joined sequence of identifiers, each quoted or bare, so both
+// `hive.sales` and `"hive"."sales"` are captured whole.
+var ddlPattern = regexp.MustCompile(`(?i)^\s*CREATE\s+(SCHEMA|TABLE|VIEW|ROLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"(?:[^"]|"")*"|[^\s;.]+)(?:\.(?:"(?:[^"]|"")*"|[^\s;.]+))*)`)
 
 // Fixture executes setup statements and returns a cleanup that drops the
 // created objects in reverse order. Statements that are not CREATE DDL are

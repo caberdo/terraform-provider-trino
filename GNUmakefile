@@ -8,8 +8,9 @@ TRINO_VERSION ?= 484
 # Compose implementation. Override for Podman:
 #   make testacc-docker COMPOSE=podman-compose
 COMPOSE ?= docker compose
-# Supported versions, single-sourced with the CI matrix in .github/workflows/test.yml.
-TRINO_VERSIONS := $(shell tr '\n' ' ' < .github/trino-versions.txt)
+# Supported versions, single-sourced with the CI matrix. Override for a quick
+# local check: TRINO_VERSIONS="484 483" make testacc-matrix
+TRINO_VERSIONS ?= $(shell tr '\n' ' ' < .github/trino-versions.txt)
 
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
@@ -43,10 +44,11 @@ coverage-readme:
 coverage-readme-check:
 	./scripts/coverage-readme.sh --check
 
-# Fail when coverage-union.out, the merged unit + acceptance profile, is below
-# the floor in .github/coverage-baseline.txt.
+# Fail when coverage.out (unit + protocol) is below the floor in
+# .github/coverage-baseline.txt. Acceptance coverage is reported separately and
+# is not gated: it depends on Docker being available (design §10).
 coverage-gate:
-	./scripts/coverage-gate.sh coverage-union.out
+	./scripts/coverage-gate.sh coverage.out
 
 testacc:
 	TF_ACC=1 go test -v -cover ./internal/...
@@ -58,12 +60,22 @@ testacc-docker:
 # Each version runs and tears down independently so one failure still lets the
 # others run; the overall exit status is non-zero if any version failed.
 testacc-matrix:
-	@status=0; \
+	@test -n "$(TRINO_VERSIONS)" || { \
+		echo "TRINO_VERSIONS is empty; check .github/trino-versions.txt" >&2; \
+		exit 1; \
+	}
+	@results=$$(mktemp); status=0; \
 	for v in $(TRINO_VERSIONS); do \
 		echo "==> Acceptance tests against Trino $$v"; \
-		$(MAKE) testacc-docker TRINO_VERSION=$$v || status=1; \
-		$(COMPOSE) down || true; \
+		if COMPOSE_PROJECT_NAME=trino-acc-$$v TRINO_EXPECT_VERSION=$$v \
+			$(MAKE) --no-print-directory testacc-docker TRINO_VERSION=$$v; then \
+			echo "PASS Trino $$v" >> "$$results"; \
+		else \
+			echo "FAIL Trino $$v" >> "$$results"; status=1; \
+		fi; \
+		COMPOSE_PROJECT_NAME=trino-acc-$$v $(COMPOSE) down -v >/dev/null 2>&1 || true; \
 	done; \
+	echo; echo "==> Acceptance matrix summary"; cat "$$results"; rm -f "$$results"; \
 	exit $$status
 
 lint:

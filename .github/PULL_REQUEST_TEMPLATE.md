@@ -27,7 +27,7 @@ For a lane task, copy the paths from the plan's lane-ownership table.
 - [ ] New or changed resources/data sources have unit tests for schema, create, update, delete and import (valid + invalid)
 - [ ] A regression test covers this change, if it is a bug fix
 - [ ] `make testacc` passes, if CRUD behaviour through Terraform Core changed
-- [ ] `make coverage-merge && make coverage-gate` passes
+- [ ] `make coverage-gate` passes (unit + protocol profile; acceptance coverage is reported, not gated)
 
 ## Documentation
 
