@@ -20,6 +20,32 @@ sql() {
   trino --server "$server" --user "$user" --execute "$1"
 }
 
+# The local filesystem flag was renamed in Trino 481:
+#   lib/trino-filesystem-manager/src/main/java/io/trino/filesystem/manager/FileSystemConfig.java
+#   476-480: fs.native-local.enabled   481+: fs.local.enabled
+# Trino rejects a catalog property it does not consume, so the name has to match
+# the server version; there is no single spelling that works on both. Without
+# the flag the file metastore cannot resolve file:// locations at all
+# ("No factory for location"), so it cannot simply be omitted.
+server_version=$(sql 'SELECT version()')
+# The CLI prints string results with surrounding double quotes: "476".
+server_version=${server_version//\"/}
+server_version=${server_version//[[:space:]]/}
+major_version=${server_version%%[!0-9]*}
+if [[ -z $major_version ]]; then
+  echo "could not determine the Trino version from '$server_version'" >&2
+  exit 1
+fi
+if (( major_version < 476 )); then
+  echo "Trino $server_version is below the supported floor (476)" >&2
+  exit 1
+fi
+if (( major_version < 481 )); then
+  local_filesystem_property="fs.native-local.enabled"
+else
+  local_filesystem_property="fs.local.enabled"
+fi
+
 # The Trino image ships neither grep nor sed, so match with bash itself.
 # SHOW CATALOGS prints one double-quoted name per line.
 catalog_exists() {
@@ -40,15 +66,17 @@ reset_catalog memory
 sql 'CREATE CATALOG memory USING memory'
 
 # `hive` backs role, role-grant and table-grant tests. The file metastore needs
-# an explicit scheme in the catalog dir and `fs.local.enabled` to allow it.
-# sql-standard security auto-grants the `admin` role to the users admin/hive/hdfs,
-# which the provider enables via `roles = { hive = "admin" }` (spec C17).
+# an explicit scheme in the catalog dir and the local filesystem flag to allow
+# it; that flag is spelled differently before 481 (see local_filesystem_property
+# above). sql-standard security auto-grants the `admin` role to the users
+# admin/hive/hdfs, which the provider enables via `roles = { hive = "admin" }`
+# (spec C17).
 reset_catalog hive
 sql "CREATE CATALOG hive USING hive WITH (
   \"hive.metastore\" = 'file',
   \"hive.metastore.catalog.dir\" = 'file:///tmp/hive',
   \"hive.security\" = 'sql-standard',
-  \"fs.local.enabled\" = 'true'
+  \"$local_filesystem_property\" = 'true'
 )"
 
 sql 'SHOW CATALOGS'
