@@ -206,7 +206,9 @@ the contract and is reproduced in the generated resource pages.
   `SELECT version()`.
 - `.github/trino-versions.txt` is the single source of truth for the CI matrix
   and `make testacc-matrix`. It starts at the declared floor and lists the last
-  five stable releases.
+  five stable releases. A pull request runs the floor and the newest release;
+  `main` and the merge queue run the whole window. A monthly workflow opens an
+  issue when the window goes stale.
 - If the version probe fails, the provider logs a warning and proceeds
   permissively; the server remains the authority on errors.
 - Kerberos requires HTTPS; keytab and credential cache are mutually exclusive,

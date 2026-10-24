@@ -150,30 +150,43 @@ jobs:
           path: coverage.out
           if-no-files-found: ignore
 
-  trino_versions:
-    name: Supported Trino Versions
+  prepare:
+    name: Prepare Trino Matrix
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only the acceptance job consumes this, and that job only runs on main.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs:
-      list: ${{ steps.read.outputs.list }}
+      versions: ${{ steps.read.outputs.versions }}
       latest: ${{ steps.read.outputs.latest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The file is the single source of truth and is ordered ascending: the
+      # first line is the declared floor, the rest is the rolling window.
+      # Pull requests get the floor plus the newest release (fast signal);
+      # main and the merge queue get the whole window.
       - name: Read the supported versions into a JSON array
         id: read
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          list=$(jq -R -s -c 'split("\n") | map(select(test("\\S")))' .github/trino-versions.txt)
-          latest=$(grep -v '^[[:space:]]*$' .github/trino-versions.txt | sort -V | tail -n 1)
-          if [[ -z "$latest" ]]; then
+          mapfile -t all < <(sed 's/[[:space:]]//g' .github/trino-versions.txt | grep -v '^$')
+          if [[ ${#all[@]} -eq 0 ]]; then
             echo "no supported Trino version found in .github/trino-versions.txt" >&2
             exit 1
           fi
-          echo "list=$list" >> "$GITHUB_OUTPUT"
+          floor="${all[0]}"
+          latest="${all[${#all[@]}-1]}"
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            versions=$(jq -c -n --arg floor "$floor" --arg latest "$latest" '[$floor, $latest] | unique')
+          else
+            versions=$(printf '%s\n' "${all[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
+
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "Matrix for $EVENT_NAME: $versions (floor $floor, latest $latest)"
 
   acceptance:
     name: Acceptance Tests (Trino ${{ matrix.trino }})
@@ -181,8 +194,8 @@ jobs:
     timeout-minutes: 45
     needs:
       - test
-      - trino_versions
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - prepare
+    if: needs.test.result == 'success'
     strategy:
       fail-fast: false
       # Two coordinators at a time keeps memory bounded on the standard runner
@@ -190,10 +203,12 @@ jobs:
       max-parallel: 2
       matrix:
         # Single source of truth: .github/trino-versions.txt, also read by
-        # `make testacc-matrix`.
-        trino: ${{ fromJSON(needs.trino_versions.outputs.list) }}
+        # `make testacc-matrix`. Pull requests run the floor and the newest
+        # release; main and the merge queue run the whole window.
+        trino: ${{ fromJSON(needs.prepare.outputs.versions) }}
     env:
       TRINO_VERSION: ${{ matrix.trino }}
+      TRINO_EXPECT_VERSION: ${{ matrix.trino }}
       # One compose project per version so matrices cannot share containers,
       # volumes or port bindings.
       COMPOSE_PROJECT_NAME: trino-acc-${{ matrix.trino }}

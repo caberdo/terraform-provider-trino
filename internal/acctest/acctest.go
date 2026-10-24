@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -22,7 +23,9 @@ func ProtoV6ProviderFactories() map[string]func() (tfprotov6.ProviderServer, err
 }
 
 // PreCheck skips the test unless acceptance testing is enabled and an endpoint
-// is configured.
+// is configured. When TRINO_EXPECT_VERSION is set it also asserts the server
+// reports that version, so a stale or mis-tagged image fails before any
+// resource test runs instead of producing a confusing capability failure.
 func PreCheck(t *testing.T) {
 	t.Helper()
 	if os.Getenv("TF_ACC") == "" {
@@ -31,6 +34,38 @@ func PreCheck(t *testing.T) {
 	if os.Getenv("TRINO_ENDPOINT") == "" {
 		t.Fatal("TRINO_ENDPOINT must be set for acceptance tests")
 	}
+	if expected := strings.TrimSpace(os.Getenv("TRINO_EXPECT_VERSION")); expected != "" {
+		verifyServerVersion(t, expected)
+	}
+}
+
+// verifyServerVersion fails when the coordinator does not report the version
+// the matrix expects. A mismatch is an environment failure, never a skip.
+func verifyServerVersion(t *testing.T, expected string) {
+	t.Helper()
+	version, err := Executor(t).Version(context.Background())
+	if err != nil {
+		t.Fatalf("TRINO_EXPECT_VERSION=%s: the version probe failed: %v", expected, err)
+	}
+	if !versionMatches(expected, version) {
+		t.Fatalf("TRINO_EXPECT_VERSION=%s but the server reported %q; check the image tag and the compose project", expected, version)
+	}
+}
+
+// versionMatches accepts an exact release or a build suffix such as
+// "484-SNAPSHOT" or "484.1", and rejects a longer number ("4840") or a
+// different release.
+func versionMatches(expected, actual string) bool {
+	expected = strings.TrimSpace(expected)
+	actual = strings.TrimSpace(actual)
+	if expected == "" || actual == "" {
+		return false
+	}
+	if actual == expected {
+		return true
+	}
+	rest := strings.TrimPrefix(actual, expected)
+	return rest != actual && (strings.HasPrefix(rest, "-") || strings.HasPrefix(rest, "."))
 }
 
 // Executor opens a client from the TRINO_* environment for fixtures and

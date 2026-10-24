@@ -100,7 +100,9 @@ deliberately does not manage tables. The compose environment provides two
 catalogs: `memory` for schema lifecycle and `hive` (file metastore,
 `sql-standard` security) for roles, role grants and table grants. Catalog, role
 and grant tests must **not** skip when `TF_ACC` is set: a missing capability is
-an environment failure, not a pass.
+an environment failure, not a pass. `TRINO_EXPECT_VERSION` makes `PreCheck`
+probe `SELECT version()` and fail when the coordinator is not the release under
+test; the matrix itself is selected from `.github/trino-versions.txt`.
 
 Unit tests live in the same package as the code they cover. Acceptance tests
 live in `<name>_test` and must compile with `go vet ./...` even when they are

@@ -33,6 +33,27 @@ make validate-examples
 make generate
 ```
 
+## Acceptance tests and the version matrix
+
+`.github/trino-versions.txt` is the single source of truth: the declared floor
+on the first line, then the last five stable releases, ascending, one per line.
+
+- A pull request runs the floor and the newest release (`Acceptance Tests
+  (Trino <version>)`); `main` and the merge queue run the whole window.
+- Run one version locally with `make testacc-docker TRINO_VERSION=484`, or a
+  subset of the window with
+  `TRINO_VERSIONS="484 483" make testacc-matrix`. The matrix gives each version
+  its own compose project and prints a PASS/FAIL summary.
+- `TRINO_EXPECT_VERSION` is set by the matrix and by CI. `PreCheck` fails when
+  the coordinator reports another release, so a stale image cannot masquerade
+  as a green run.
+- **Adding a release:** put it on its own line in ascending order, run the
+  matrix, and land a pull request. **Dropping a release:** remove the line; if
+  the floor moves, update `README.md`, `SECURITY.md` and the spec in the same
+  change.
+- `.github/workflows/version-freshness.yml` opens one issue labelled
+  `version-matrix` when the window drifts; it never edits the file.
+
 ## Pull requests
 
 - One logical change per pull request; keep the diff inside the paths the task
@@ -77,10 +98,9 @@ gate**. Treat a rename as a breaking CI change:
 
 Never require a job that has an `if:` condition or a matrix context. Such a
 check is skipped on some PRs and sits at "Expected — Waiting for status to be
-reported" forever. `Supported Trino Versions` and
-`Acceptance Tests (Trino <version>)` are therefore not required; the latter is
-deferred until #16 makes it PR-runnable. Do not add `paths:` or `branches:`
-filters to a workflow whose jobs are required.
+reported" forever. `Prepare Trino Matrix`, `Acceptance Tests (Trino <version>)`
+and `Check the Trino release window` are therefore not required. Do not add
+`paths:` or `branches:` filters to a workflow whose jobs are required.
 
 `./scripts/check-branch-protection.sh` is read-only and exits non-zero on
 drift. `.github/workflows/protection-drift.yml` runs it weekly and opens (or
