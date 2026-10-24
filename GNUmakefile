@@ -43,10 +43,11 @@ coverage-readme:
 coverage-readme-check:
 	./scripts/coverage-readme.sh --check
 
-# Fail when coverage-union.out, the merged unit + acceptance profile, is below
-# the floor in .github/coverage-baseline.txt.
+# Fail when coverage.out (unit + protocol) is below the floor in
+# .github/coverage-baseline.txt. Acceptance coverage is reported separately and
+# is not gated: it depends on Docker being available (design §10).
 coverage-gate:
-	./scripts/coverage-gate.sh coverage-union.out
+	./scripts/coverage-gate.sh coverage.out
 
 testacc:
 	TF_ACC=1 go test -v -cover ./internal/...
