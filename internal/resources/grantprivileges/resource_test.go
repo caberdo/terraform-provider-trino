@@ -143,7 +143,10 @@ func TestGrantPrivilegesUpdateAddsAndRemoves(t *testing.T) {
 
 	updated, _ := trinotest.Update(t, r, state, plan)
 
-	want := `GRANT INSERT ON TABLE "hive"."sales"."orders" TO ROLE "analyst"`
+	// The full desired set is granted, not just the addition, so the operation
+	// is idempotent on metastores that replace a grantee's privileges per
+	// statement (for example Trino's file metastore).
+	want := `GRANT INSERT, SELECT ON TABLE "hive"."sales"."orders" TO ROLE "analyst"`
 	if fake.Calls[0].Op != "exec" || fake.Calls[0].Statement != want {
 		t.Fatalf("update call = %#v, want exec %q", fake.Calls[0], want)
 	}
@@ -182,6 +185,7 @@ func TestGrantPrivilegesUpdateGrantOption(t *testing.T) {
 	t.Run("off", func(t *testing.T) {
 		fake := &trinotest.FakeExecutor{Steps: []trinotest.Step{
 			{},
+			{},
 			{Rows: privilegeRows(false, "SELECT")},
 		}}
 		r := New()
@@ -189,9 +193,21 @@ func TestGrantPrivilegesUpdateGrantOption(t *testing.T) {
 
 		_, _ = trinotest.Update(t, r, testState([]string{"SELECT"}, true), testState([]string{"SELECT"}, false))
 
-		want := `REVOKE GRANT OPTION FOR SELECT ON TABLE "hive"."sales"."orders" FROM ROLE "analyst"`
-		if fake.Calls[0].Statement != want {
-			t.Fatalf("statement = %q, want %q", fake.Calls[0].Statement, want)
+		// Clearing the grant option is a two-step operation. Trino's file
+		// metastore drops the privilege entirely on REVOKE GRANT OPTION FOR,
+		// so the retained set is re-granted without the option; on a merge
+		// metastore the re-grant is a harmless no-op.
+		wantRevoke := `REVOKE GRANT OPTION FOR SELECT ON TABLE "hive"."sales"."orders" FROM ROLE "analyst"`
+		if fake.Calls[0].Statement != wantRevoke {
+			t.Fatalf("first statement = %q, want %q", fake.Calls[0].Statement, wantRevoke)
+		}
+		wantGrant := `GRANT SELECT ON TABLE "hive"."sales"."orders" TO ROLE "analyst"`
+		if fake.Calls[1].Statement != wantGrant {
+			t.Fatalf("second statement = %q, want %q", fake.Calls[1].Statement, wantGrant)
+		}
+		execs := execStatements(fake)
+		if len(execs) != 2 {
+			t.Fatalf("update emitted %d statements, want 2: %v", len(execs), execs)
 		}
 	})
 }
@@ -238,6 +254,33 @@ func TestGrantPrivilegesDeleteSQL(t *testing.T) {
 	want := `REVOKE INSERT, SELECT ON TABLE "hive"."sales"."orders" FROM ROLE "analyst"`
 	if len(fake.Calls) != 1 || fake.Calls[0].Statement != want {
 		t.Fatalf("delete call = %#v, want %q", fake.Calls, want)
+	}
+}
+
+// TestGrantPrivilegesDeleteClearsGrantOptionFirst covers the file metastore,
+// which keys a table privilege by its grant-option flag: a plain REVOKE of a
+// grant made WITH GRANT OPTION is a silent no-op there, so the option has to be
+// cleared first. On a real Hive metastore the first statement only drops the
+// option and the second removes the privilege.
+func TestGrantPrivilegesDeleteClearsGrantOptionFirst(t *testing.T) {
+	fake := &trinotest.FakeExecutor{Steps: []trinotest.Step{{}, {}}}
+	r := New()
+	trinotest.Configure(t, r, fake)
+
+	trinotest.Delete(t, r, testState([]string{"INSERT", "SELECT"}, true))
+
+	want := []string{
+		`REVOKE GRANT OPTION FOR INSERT, SELECT ON TABLE "hive"."sales"."orders" FROM ROLE "analyst"`,
+		`REVOKE INSERT, SELECT ON TABLE "hive"."sales"."orders" FROM ROLE "analyst"`,
+	}
+	execs := execStatements(fake)
+	if len(execs) != len(want) {
+		t.Fatalf("delete emitted %d statements, want %d: %v", len(execs), len(want), execs)
+	}
+	for i := range want {
+		if execs[i] != want[i] {
+			t.Fatalf("delete statement %d = %q, want %q", i, execs[i], want[i])
+		}
 	}
 }
 
