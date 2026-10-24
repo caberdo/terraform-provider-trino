@@ -16,9 +16,10 @@ actionable diagnostic or documented as a known limitation.
 ## Requirements
 
 - Terraform 1.9 or later (plugin protocol 6.0).
-- Trino **476** or later. CI runs the acceptance suite against the versions in
-  [`.github/trino-versions.txt`](.github/trino-versions.txt); 476 is the declared
-  floor and every entry up to the newest stable release is tested.
+- Trino **476** or later. CI runs the whole list in
+  [`.github/trino-versions.txt`](.github/trino-versions.txt) on `main`; a pull
+  request runs the declared floor (476) and the newest release. 476 is the
+  minimum supported server.
 
 ## Installation
 

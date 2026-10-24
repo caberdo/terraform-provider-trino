@@ -60,6 +60,10 @@ testacc-docker:
 # Each version runs and tears down independently so one failure still lets the
 # others run; the overall exit status is non-zero if any version failed.
 testacc-matrix:
+	@test -n "$(TRINO_VERSIONS)" || { \
+		echo "TRINO_VERSIONS is empty; check .github/trino-versions.txt" >&2; \
+		exit 1; \
+	}
 	@results=$$(mktemp); status=0; \
 	for v in $(TRINO_VERSIONS); do \
 		echo "==> Acceptance tests against Trino $$v"; \

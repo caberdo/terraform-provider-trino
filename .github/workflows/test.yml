@@ -156,7 +156,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       versions: ${{ steps.read.outputs.versions }}
-      latest: ${{ steps.read.outputs.latest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -185,7 +184,6 @@ jobs:
           fi
 
           echo "versions=$versions" >> "$GITHUB_OUTPUT"
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "Matrix for $EVENT_NAME: $versions (floor $floor, latest $latest)"
 
   acceptance:

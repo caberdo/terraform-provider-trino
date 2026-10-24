@@ -64,10 +64,15 @@ resource "trino_grant_role" "analyst_to_grantee" {
   depends_on = [trino_role.analyst]
 }
 
-# The provider does not manage tables, so `hive.default.orders` must already
-# exist (the compose environment creates it). Table grants are read back from
-# information_schema.table_privileges, so out-of-band revocation is detected as
-# long as the provider user can see the grant.
+# The provider does not manage tables, so `hive.default.orders` must exist
+# before this module is applied. Against the compose environment:
+#   docker compose up -d --wait trino
+#   docker compose run --rm -T trino-init
+#   docker compose exec trino trino --execute "CREATE SCHEMA IF NOT EXISTS hive.default"
+#   docker compose exec trino trino --execute "CREATE TABLE IF NOT EXISTS hive.default.orders (id bigint)"
+# Table grants are read back from information_schema.table_privileges, so
+# out-of-band revocation is detected as long as the provider user can see the
+# grant.
 resource "trino_grant_privileges" "analyst_select" {
   privileges = ["SELECT"]
   on = {
