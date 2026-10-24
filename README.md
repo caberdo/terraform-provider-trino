@@ -9,37 +9,208 @@ owns no truth of its own: every read is a SQL query, every mutation is a DDL
 statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
-> **Status:** early development. The module, tooling and CI are scaffolded; the
-> provider configuration, resources and data sources land in the follow-up tasks.
+> **Status:** v1 surface complete, pending release. The five resources and four
+> data sources are implemented, documented and covered by unit, protocol and
+> Docker acceptance tests.
 
 ## Requirements
 
 - Terraform 1.9 or later (plugin protocol 6.0).
 - Trino **476** or later. CI runs the acceptance suite against the versions in
-  [`.github/trino-versions.txt`](.github/trino-versions.txt).
+  [`.github/trino-versions.txt`](.github/trino-versions.txt); 476 is the declared
+  floor and every entry up to the newest stable release is tested.
 
-## Quick start
+## Installation
+
+The provider is published to the Terraform Registry as `caberdo/trino`:
 
 ```hcl
 terraform {
   required_providers {
     trino = {
-      source = "caberdo/trino"
+      source  = "caberdo/trino"
+      version = "~> 1.0"
     }
   }
 }
+```
 
+Until the first registry release, install a local build and point Terraform at
+it with a `dev_overrides` block (or `make install`). See
+[`examples/complete/main.tf`](examples/complete/main.tf) for a full module.
+
+## Quick start
+
+```hcl
 provider "trino" {
   endpoint = "http://localhost:8080"
   user     = "admin"
   auth     = "none"
 }
+
+resource "trino_catalog" "analytics" {
+  name      = "analytics"
+  connector = "memory"
+}
+
+resource "trino_schema" "sales" {
+  catalog = trino_catalog.analytics.name
+  name    = "sales"
+}
+
+resource "trino_role" "analyst" {
+  name    = "analyst"
+  catalog = "hive"
+}
 ```
 
-Provider configuration and the resource reference will be published in the
-Terraform Registry once v1 is released. Until then, run `make install` and
-Terraform discovers the binary from `~/.terraform.d/plugins`. Alternatively,
-point a `dev_overrides` block at the directory that holds the built binary.
+Every provider attribute falls back to a `TRINO_*` environment variable, so
+credentials do not have to live in configuration:
+
+```hcl
+provider "trino" {
+  # TRINO_ENDPOINT, TRINO_USER, TRINO_PASSWORD, ...
+}
+```
+
+## Provider configuration
+
+| Attribute | Type | Environment | Notes |
+|---|---|---|---|
+| `endpoint` | string | `TRINO_ENDPOINT` | Coordinator URL, for example `https://trino.example:8443`. |
+| `auth` | string | `TRINO_AUTH` | `none`, `basic`, `jwt`, `oauth2` or `kerberos`. Inferred from the credentials when unset. |
+| `user` | string | `TRINO_USER` | Defaults to `terraform`. |
+| `password` | string, sensitive | `TRINO_PASSWORD` | Basic auth. Requires an `https` endpoint. |
+| `access_token` | string, sensitive | `TRINO_ACCESS_TOKEN` | Static JWT; also sent as `X-Trino-Authorization-User`. |
+| `oauth2_client_id` | string | `TRINO_OAUTH2_CLIENT_ID` | Client-credentials flow. |
+| `oauth2_client_secret` | string, sensitive | `TRINO_OAUTH2_CLIENT_SECRET` | Client-credentials flow. |
+| `oauth2_token_endpoint` | string | `TRINO_OAUTH2_TOKEN_ENDPOINT` | **Required** for `auth = "oauth2"`: Trino 476 has no discovery. |
+| `oauth2_scope` | string | `TRINO_OAUTH2_SCOPE` | Optional scope. |
+| `kerberos_principal` | string | `TRINO_KERBEROS_PRINCIPAL` | Principal without a realm. |
+| `kerberos_realm` | string | `TRINO_KERBEROS_REALM` | Required with a keytab. |
+| `kerberos_keytab` | string, sensitive | `TRINO_KERBEROS_KEYTAB` | Mutually exclusive with the credential cache. |
+| `kerberos_credential_cache` | string, sensitive | `TRINO_KERBEROS_CREDENTIAL_CACHE` | `FILE:` cache, for example `FILE:/tmp/krb5cc_1000`. |
+| `kerberos_config_file` | string | `TRINO_KERBEROS_CONFIG_FILE` | Path to `krb5.conf`. |
+| `kerberos_service_name` | string | `TRINO_KERBEROS_SERVICE_NAME` | Defaults to `HTTP` (the coordinator convention, not the driver default). |
+| `kerberos_service_principal_pattern` | string | `TRINO_KERBEROS_SERVICE_PRINCIPAL_PATTERN` | Defaults to `${SERVICE}@${HOST}`. Must not name a realm. |
+| `kerberos_use_canonical_hostname` | bool | `TRINO_KERBEROS_USE_CANONICAL_HOSTNAME` | Defaults to `true`. |
+| `source` | string | `TRINO_SOURCE` | Defaults to `terraform-provider-trino`. |
+| `catalog` | string | `TRINO_CATALOG` | Default catalog for every statement. |
+| `schema` | string | `TRINO_SCHEMA` | Default schema for every statement. |
+| `session_properties` | map(string) | — | `X-Trino-Session` on every request. |
+| `extra_credentials` | map(string), sensitive | — | `X-Trino-Extra-Credential` on every request. |
+| `roles` | map(string) | — | Catalog to role mapping, for example `{ hive = "admin" }`. |
+| `http_headers` | map(string), sensitive | — | Static headers for gateway or proxy auth. |
+| `query_timeout` | string | `TRINO_QUERY_TIMEOUT` | Duration, default `5m`. Bounds every operation. |
+| `insecure_skip_verify` | bool | `TRINO_INSECURE_SKIP_VERIFY` | Test only. |
+| `ca_cert` | string | `TRINO_CA_CERT` | CA PEM content; conflicts with `ca_cert_file`. |
+| `ca_cert_file` | string | `TRINO_CA_CERT_FILE` | CA PEM file. |
+| `client_cert` | string, sensitive | `TRINO_CLIENT_CERT` | mTLS certificate PEM content. |
+| `client_cert_file` | string | `TRINO_CLIENT_CERT_FILE` | mTLS certificate file. |
+| `client_key` | string, sensitive | `TRINO_CLIENT_KEY` | mTLS private key PEM content. |
+| `client_key_file` | string | `TRINO_CLIENT_KEY_FILE` | mTLS private key file. |
+
+### Authentication modes
+
+| Mode | Requirements |
+|---|---|
+| `none` | No credentials. Rejected if a password, token or OAuth2 secret is set. |
+| `basic` | `user` + `password` over `https`. Password over `http` is rejected before dialling. |
+| `jwt` | `access_token`. |
+| `oauth2` | `oauth2_client_id`, `oauth2_client_secret` and `oauth2_token_endpoint`. |
+| `kerberos` | `https` endpoint, `kerberos_principal` + `kerberos_realm`, and **either** `kerberos_keytab` **or** `kerberos_credential_cache`. |
+
+See [`contributing/kerberos-acceptance.md`](contributing/kerberos-acceptance.md)
+for a reproducible KDC and Trino setup.
+
+## Resources
+
+| Resource | Manages | Import ID |
+|---|---|---|
+| [`trino_catalog`](docs/resources/catalog.md) | `CREATE/DROP CATALOG` with connector properties | Not supported (see limitations) |
+| [`trino_schema`](docs/resources/schema.md) | `CREATE/DROP SCHEMA`, owner, properties | `catalog.schema` |
+| [`trino_role`](docs/resources/role.md) | `CREATE/DROP ROLE` in a catalog | `catalog.role` |
+| [`trino_grant_role`](docs/resources/grant_role.md) | `GRANT/REVOKE` a role to a principal | `catalog.role:grantee_type:grantee` |
+| [`trino_grant_privileges`](docs/resources/grant_privileges.md) | `GRANT/REVOKE` table privileges | `catalog.schema.table:grantee_type:grantee` |
+
+## Data sources
+
+| Data source | Returns |
+|---|---|
+| [`trino_catalogs`](docs/data-sources/catalogs.md) | Catalog names and connectors, optional `name_prefix` filter. |
+| [`trino_schemas`](docs/data-sources/schemas.md) | Schema names for a catalog. |
+| [`trino_roles`](docs/data-sources/roles.md) | Catalog role names. |
+| [`trino_table_privileges`](docs/data-sources/table_privileges.md) | Grantees, privilege types and grantability for a table. |
+
+## Read-back matrix
+
+The provider never claims drift detection it does not implement. This table is
+the contract and is reproduced in the generated resource pages.
+
+| Resource | Existence | Configured drift | Out-of-band revocation |
+|---|---|---|---|
+| `trino_catalog` | `system.metadata.catalogs` | `connector` only; properties are not readable | Detected only if the current connector differs |
+| `trino_schema` | `SHOW SCHEMAS` | Owner and properties parsed from `SHOW CREATE SCHEMA` (best effort) | Schema dropped → detected |
+| `trino_role` | `SHOW ROLES` | `catalog`/`name` only | Role dropped → detected |
+| `trino_grant_role` | None | None | **Not detected** (state-authoritative) |
+| `trino_grant_privileges` | `information_schema.table_privileges` | Privileges and grant option | Detected |
+
+## Known limitations
+
+- **No user resource.** Trino has no `CREATE USER` and no user listing. Grantees
+  are arbitrary principal strings (LDAP DN, `alice@example.com`,
+  `DOMAIN\alice`), validated and always quoted.
+- **No system roles.** Stock Trino disables system security; `trino_role`
+  therefore requires `catalog` and creates catalog roles only.
+- **No schema-level grants.** Trino only supports `ON TABLE` grants through a
+  bundled connector, so `trino_grant_privileges` models tables.
+- **No `ALTER CATALOG` and no catalog import.** Catalog properties have no read
+  path, so every catalog attribute forces replacement and `ImportState` returns
+  a diagnostic instead of silently recreating a live catalog.
+- **Catalog properties are write-only.** They stay in state; property drift is
+  not detected. `sensitive_properties` are merged into the same `CREATE CATALOG`
+  statement and are logged by Trino's query history — treat that history as
+  sensitive.
+- **Role grants are state-authoritative.** Trino cannot list another principal's
+  role grants, so an out-of-band revocation stays in state. Re-apply or
+  `terraform state rm` + import to reconcile.
+- **Table-grant visibility follows authorization.** A non-admin provider user
+  may only see its own grants; use an admin identity for reliable drift
+  detection.
+- **`ALL PRIVILEGES` is rejected.** Trino expands it before storing it, which
+  would create a permanent diff. List `SELECT`, `INSERT`, `UPDATE`, `DELETE`.
+- **Hive lowercases names.** Reads match case-insensitively and keep the
+  configured spelling in state, so a quoted `CREATE ROLE "Analyst"` does not
+  produce a perpetual diff.
+- **Dynamic catalogs must be enabled.** `CREATE CATALOG` requires
+  `catalog.management=dynamic` on the coordinator; the provider maps the
+  failure to a diagnostic naming the property.
+- **SQL-standard Hive needs an enabled role.** Set
+  `roles = { hive = "admin" }` (C17). The file metastore auto-grants `admin` to
+  `admin`/`hive`/`hdfs`, which is how a fresh environment bootstraps.
+
+## Required Trino privileges
+
+| Resource | Identity needs |
+|---|---|
+| `trino_catalog` | `CREATE CATALOG` / `DROP CATALOG`, plus `catalog.management=dynamic` on the coordinator. |
+| `trino_schema` | `CREATE SCHEMA`, `DROP SCHEMA` (`CASCADE` for `force_destroy`), and `ALTER SCHEMA ... SET AUTHORIZATION` when changing the owner. |
+| `trino_role` | Role-admin rights on the catalog; the creating user becomes role admin. |
+| `trino_grant_role` | `WITH ADMIN OPTION` on the role being granted. |
+| `trino_grant_privileges` | Ownership or admin rights on the table, and `GRANT OPTION` to delegate it. |
+
+## Version policy
+
+- The minimum supported server is **Trino 476**. One build supports 476 and
+  newer; behaviour that differs by version is gated at runtime from
+  `SELECT version()`.
+- `.github/trino-versions.txt` is the single source of truth for the CI matrix
+  and `make testacc-matrix`. It starts at the declared floor and lists the last
+  five stable releases.
+- If the version probe fails, the provider logs a warning and proceeds
+  permissively; the server remains the authority on errors.
+- Kerberos requires HTTPS; keytab and credential cache are mutually exclusive,
+  and the service principal pattern must not name a realm.
 
 ## Development
 
@@ -69,7 +240,7 @@ The coverage gate fails below **80%** (`./scripts/coverage-gate.sh`).
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) — request flow, executor internals, error
-  taxonomy and test layers.
+  taxonomy, auth matrix and test layers.
 - [Contributing](CONTRIBUTING.md) — development workflow and review gates.
 - [Security](SECURITY.md) — supported versions, threat model and reporting.
 - [Changelog](CHANGELOG.md).
