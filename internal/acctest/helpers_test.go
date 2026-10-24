@@ -34,6 +34,10 @@ func TestPreCheckPassesWithEndpoint(t *testing.T) {
 		child = t
 		t.Setenv("TF_ACC", "1")
 		t.Setenv("TRINO_ENDPOINT", "http://127.0.0.1:1")
+		// CI exports TRINO_EXPECT_VERSION job-wide for the acceptance
+		// container, and PreCheck probes the server when it is set. Clear it
+		// so this test covers the endpoint guard alone.
+		t.Setenv("TRINO_EXPECT_VERSION", "")
 		PreCheck(t)
 	}) {
 		t.Fatal("PreCheck should pass when TF_ACC and TRINO_ENDPOINT are set")
