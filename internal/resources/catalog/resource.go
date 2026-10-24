@@ -4,15 +4,18 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
@@ -22,6 +25,12 @@ import (
 )
 
 const catalogLookupSQL = `SELECT catalog_name, connector_name FROM system.metadata.catalogs WHERE catalog_name = ?`
+
+// connectorNamePattern is the shape of a Trino connector plugin name. The
+// connector is emitted bare in CREATE CATALOG (Trino rejects a quoted
+// connector), so the value is constrained to a safe unquoted identifier
+// instead of being passed through trino.QuoteIdentifier.
+var connectorNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // catalogModel is the Terraform state for a Trino catalog. Properties and
 // sensitive_properties are write-only: Trino exposes no read path for them, so
@@ -74,7 +83,12 @@ func (r *catalogResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"connector": schema.StringAttribute{
 				Required: true,
 				MarkdownDescription: "Trino connector that backs the catalog, for example `memory`, `tpch`, `hive` or `iceberg`. " +
+					"Must be a lowercase connector name (letters, digits and underscores, starting with a letter). " +
 					"Changing this forces a new catalog to be created.",
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(connectorNamePattern,
+						"must be a lowercase Trino connector name: letters, digits and underscores, starting with a letter"),
+				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -283,7 +297,11 @@ func readCatalog(ctx context.Context, executor trino.Executor, name string) (cat
 }
 
 func buildCreateStatement(name, connector string, properties map[string]string) string {
-	statement := "CREATE CATALOG " + trino.QuoteIdentifier(name) + " USING " + trino.QuoteIdentifier(connector)
+	// The connector name is emitted bare, not as a quoted identifier: Trino
+	// parses `USING "memory"` as a quoted identifier and rejects it with
+	// `Invalid connector name: "memory"`. The schema validator constrains the
+	// value to a safe unquoted identifier.
+	statement := "CREATE CATALOG " + trino.QuoteIdentifier(name) + " USING " + connector
 	if len(properties) == 0 {
 		return statement
 	}

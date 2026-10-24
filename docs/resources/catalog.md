@@ -54,7 +54,7 @@ resource "trino_catalog" "lakehouse" {
 
 ### Required
 
-- `connector` (String) Trino connector that backs the catalog, for example `memory`, `tpch`, `hive` or `iceberg`. Changing this forces a new catalog to be created.
+- `connector` (String) Trino connector that backs the catalog, for example `memory`, `tpch`, `hive` or `iceberg`. Must be a lowercase connector name (letters, digits and underscores, starting with a letter). Changing this forces a new catalog to be created.
 - `name` (String) Name of the catalog. Trino catalog names are case-insensitive; the configured spelling is kept in state. Changing this forces a new catalog to be created.
 
 ### Optional

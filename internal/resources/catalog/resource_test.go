@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/caberdo/terraform-provider-trino/internal/trino"
@@ -80,7 +82,10 @@ func TestCatalogCreateEmitsSQL(t *testing.T) {
 		t.Fatalf("existence args = %#v, want %#v", fake.Calls[0].Args, want)
 	}
 
-	wantCreate := `CREATE CATALOG "lakehouse" USING "iceberg" WITH (` +
+	// The catalog name is a quoted identifier, but the connector name must be
+	// emitted bare: Trino rejects `USING "iceberg"` with
+	// `Invalid connector name: "iceberg"` (see buildCreateStatement).
+	wantCreate := `CREATE CATALOG "lakehouse" USING iceberg WITH (` +
 		`"iceberg.catalog.type" = 'rest', ` +
 		`"iceberg.rest.oauth2.credential" = 'secret', ` +
 		`"iceberg.rest.uri" = 'http://iceberg:8181', ` +
@@ -307,6 +312,50 @@ func TestCatalogAllAttributesRequireReplace(t *testing.T) {
 		if !hasMapRequiresReplace(attribute.PlanModifiers) {
 			t.Fatalf("%s has no RequiresReplace plan modifier", name)
 		}
+	}
+}
+
+// TestCatalogConnectorNameValidated checks the connector name is constrained to
+// a safe unquoted identifier, because it is emitted bare in CREATE CATALOG.
+func TestCatalogConnectorNameValidated(t *testing.T) {
+	r := New()
+	resourceSchema := trinotest.SchemaOf(t, r)
+	attribute, ok := resourceSchema.Attributes["connector"].(schema.StringAttribute)
+	if !ok {
+		t.Fatalf("connector is %T, want schema.StringAttribute", resourceSchema.Attributes["connector"])
+	}
+	if len(attribute.Validators) == 0 {
+		t.Fatal("connector has no validators")
+	}
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "memory"},
+		{name: "delta_lake"},
+		{name: "tpch1"},
+		{name: "Iceberg", wantErr: true},
+		{name: "ice berg", wantErr: true},
+		{name: `memory";DROP CATALOG "x`, wantErr: true},
+		{name: "1memory", wantErr: true},
+		{name: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := validator.StringRequest{
+				ConfigValue: types.StringValue(tt.name),
+				Path:        path.Root("connector"),
+			}
+			var response validator.StringResponse
+			for _, v := range attribute.Validators {
+				v.ValidateString(context.Background(), request, &response)
+			}
+			if got := response.Diagnostics.HasError(); got != tt.wantErr {
+				t.Fatalf("connector %q: HasError = %v, want %v (%v)", tt.name, got, tt.wantErr, response.Diagnostics)
+			}
+		})
 	}
 }
 
