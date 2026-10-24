@@ -141,6 +141,11 @@ func TestAccSchemaResource_import(t *testing.T) {
 				ImportState:       true,
 				ImportStateVerify: true,
 				ImportStateId:     catalog + "." + name,
+				// force_destroy is a delete-only flag with no read path in
+				// Trino, so an import cannot recover it (spec 7.2). Reading
+				// the schema back through SHOW CREATE SCHEMA does restore the
+				// owner and properties, so those are still verified.
+				ImportStateVerifyIgnore: []string{"force_destroy"},
 			},
 		},
 	})

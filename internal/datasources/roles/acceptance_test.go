@@ -18,7 +18,12 @@ func TestAccRolesDataSource_basic(t *testing.T) {
 		PreCheck:                 func() { acctest.PreCheck(t) },
 		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{{
-			Config: `data "trino_roles" "test" {
+			Config: `provider "trino" {
+  user  = "admin"
+  roles = { hive = "admin" }
+}
+
+data "trino_roles" "test" {
   catalog = "hive"
 }`,
 			Check: resource.ComposeTestCheckFunc(
