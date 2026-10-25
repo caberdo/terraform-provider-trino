@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.1.1] - 2026-10-25
+
+### Fixed
+
+- The README installation constraint and status now match the published
+  release instead of saying "pending release" and `~> 1.0`.
+- The changelog records the `0.1.0` release published on 2026-10-24.
+
+## [0.1.0] - 2026-10-24
+
 ### Added
 
 - Provider `trino` with environment fallbacks for every attribute, auth modes

@@ -9,9 +9,9 @@ owns no truth of its own: every read is a SQL query, every mutation is a DDL
 statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
-> **Status:** v1 surface complete, pending release. The five resources and four
-> data sources are implemented, documented and covered by unit, protocol and
-> Docker acceptance tests.
+> **Status:** v0.1.x released. The five resources and four data sources are
+> implemented, documented and covered by unit, protocol and Docker acceptance
+> tests.
 
 ## Requirements
 
@@ -30,14 +30,14 @@ terraform {
   required_providers {
     trino = {
       source  = "caberdo/trino"
-      version = "~> 1.0"
+      version = "~> 0.1"
     }
   }
 }
 ```
 
-Until the first registry release, install a local build and point Terraform at
-it with a `dev_overrides` block (or `make install`). See
+To build from source or test unreleased changes, install a local build and
+point Terraform at it with a `dev_overrides` block (or `make install`). See
 [`examples/complete/main.tf`](examples/complete/main.tf) for a full module.
 
 ## Quick start
