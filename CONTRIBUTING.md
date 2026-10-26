@@ -100,6 +100,10 @@ provider does not call are reported by the tool and do not block.
 - The tool version is pinned in `.github/workflows/test.yml`
   (`golang.org/x/vuln/cmd/govulncheck@v1.9.0`); bump it deliberately together
   with the `go` directive it was tested against.
+- `golangci-lint` and `gosec` are pinned and built with the job's Go toolchain
+  (`install-mode: goinstall` and `go run …@version`). Released binaries are
+  built with an older Go and cannot read the module's export data, so bump
+  their versions together with the `go` directive.
 - Fix a finding by upgrading the dependency or the Go toolchain in `go.mod`.
 - If a reachable finding cannot be fixed yet, add its OSV ID and a reason to
   `.github/govulncheck-accepted.txt`. The gate prints accepted entries and warns
