@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `trino_materialized_view` resource for connector-backed materialized views:
+  quoted `CREATE`/`DROP MATERIALIZED VIEW` with raw-SQL `properties` and
+  `grace_period`, import by `catalog.schema.name`, existence read-back from
+  `system.metadata.materialized_views`, configured-property drift from `SHOW
+  CREATE MATERIALIZED VIEW`, and a definition read from the same statement on
+  import. `Read` never refreshes; `refresh_on_create` populates the view at
+  creation and changing `refresh_token` asks for a `REFRESH MATERIALIZED VIEW`
+  on the next apply. The acceptance suite runs it against the Iceberg catalog on
+  every supported release.
 - The acceptance environment runs an `iceberg` catalog backed by a Hive
   metastore (Hive 3.1.3, `iceberg-warehouse` volume). Trino rejects
   `CREATE MATERIALIZED VIEW` on Iceberg REST catalogs, so the metastore is the

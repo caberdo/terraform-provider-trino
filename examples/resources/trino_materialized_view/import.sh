@@ -1,0 +1,1 @@
+terraform import trino_materialized_view.orders_by_region iceberg.sales.orders_by_region

@@ -98,3 +98,29 @@ resource "trino_grant_privileges" "analyst_select" {
 
   depends_on = [trino_grant_role.analyst_to_grantee]
 }
+
+# Materialized views need a connector that stores them. In the acceptance
+# environment that is `iceberg`, backed by a Hive metastore; the Iceberg REST
+# catalog rejects CREATE MATERIALIZED VIEW. The provider does not manage source
+# tables, so create one before this module is applied:
+#   docker compose exec trino trino --execute "CREATE SCHEMA IF NOT EXISTS iceberg.default"
+#   docker compose exec trino trino --execute "CREATE TABLE IF NOT EXISTS iceberg.default.events (id bigint, region varchar)"
+#
+# The query is resolved in the provider's session, so it is fully qualified.
+# Read never refreshes: `refresh_token` is the explicit trigger, and
+# `grace_period` keeps queries on the stored data fast until the view goes
+# stale.
+resource "trino_materialized_view" "events_by_region" {
+  catalog = "iceberg"
+  schema  = "default"
+  name    = "events_by_region"
+  query   = "SELECT region, count(*) AS events FROM iceberg.default.events GROUP BY region"
+
+  properties = {
+    format = "'ORC'"
+  }
+
+  grace_period      = "1h"
+  refresh_on_create = true
+  refresh_token     = "2026-10-26"
+}

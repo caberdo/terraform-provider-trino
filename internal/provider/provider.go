@@ -21,6 +21,7 @@ import (
 	"github.com/caberdo/terraform-provider-trino/internal/resources/function"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/grantprivileges"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/grantrole"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/materializedview"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/role"
 	trinoschema "github.com/caberdo/terraform-provider-trino/internal/resources/schema"
 	"github.com/caberdo/terraform-provider-trino/internal/trino"
@@ -50,7 +51,7 @@ func (p *TrinoProvider) Metadata(_ context.Context, _ provider.MetadataRequest, 
 
 func (p *TrinoProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = providerschema.Schema{
-		Description: "Manage Trino catalogs, schemas, roles, grants and catalog user-defined functions.",
+		Description: "Manage Trino catalogs, schemas, roles, grants, catalog user-defined functions and materialized views.",
 		Attributes: map[string]providerschema.Attribute{
 			"endpoint": providerschema.StringAttribute{
 				Optional:    true,
@@ -288,6 +289,7 @@ func (p *TrinoProvider) Resources(context.Context) []func() resource.Resource {
 		grantrole.New,
 		grantprivileges.New,
 		function.New,
+		materializedview.New,
 	}
 }
 
