@@ -46,6 +46,13 @@ on the first line, then the last five stable releases, ascending, one per line.
   subset of the window with
   `TRINO_VERSIONS="484 483" make testacc-matrix`. The matrix gives each version
   its own compose project and prints a PASS/FAIL summary.
+- The compose environment runs `memory`, `hive` and `iceberg` catalogs.
+  `iceberg` is backed by a Hive metastore rather than the Iceberg REST catalog
+  because Trino rejects `CREATE MATERIALIZED VIEW` on REST catalogs, and its
+  warehouse is the `iceberg-warehouse` volume. The metastore image is pinned to
+  Hive 3.1.3 (`HIVE_VERSION` to override): Hive 4.x accepts the DDL but every
+  Iceberg commit on Trino 476 times out. The 3.1.3 image is amd64-only, so
+  arm64 hosts need Docker/Podman emulation.
 - `TRINO_EXPECT_VERSION` is set by the matrix and by CI. `PreCheck` fails when
   the coordinator reports another release, so a stale image cannot masquerade
   as a green run.

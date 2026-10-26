@@ -1,4 +1,45 @@
 services:
+  # Metadata catalog for the `iceberg` catalog. Trino's Iceberg connector
+  # rejects CREATE MATERIALIZED VIEW on the REST catalog ("createMaterializedView
+  # is not supported for Iceberg REST catalog"), so materialized-view acceptance
+  # needs a Hive metastore, not a REST fixture.
+  #
+  # 3.1.3 is the release tested against the whole supported window: with 4.0.1,
+  # DDL succeeds but every Iceberg commit times out on the client
+  # (java.net.SocketTimeoutException on the alter_table RPC) on 476, while 484
+  # works; 3.1.3 commits on both. The 3.1.3 image is amd64-only, hence the
+  # platform pin. Docker and Podman both emulate it on arm64.
+  hive-metastore:
+    image: apache/hive:${HIVE_VERSION:-3.1.3}
+    platform: linux/amd64
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: derby
+    volumes:
+      # The metastore creates the database directory for an Iceberg schema with
+      # an explicit location, so it needs the same warehouse as the coordinator.
+      - iceberg-warehouse:/warehouse
+    depends_on:
+      iceberg-warehouse-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9083"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
+
+  # One-shot: named volumes are created root-owned, but both the coordinator
+  # and the metastore run as uid 1000. Both write the Iceberg warehouse, so its
+  # ownership is fixed once before either starts.
+  iceberg-warehouse-init:
+    image: apache/hive:${HIVE_VERSION:-3.1.3}
+    platform: linux/amd64
+    user: "0:0"
+    entrypoint: ["chown", "1000:1000", "/warehouse"]
+    volumes:
+      - iceberg-warehouse:/warehouse
+
   trino:
     # Override to test another supported server version:
     # TRINO_VERSION=476 docker compose run --rm test
@@ -8,6 +49,12 @@ services:
     volumes:
       - ./test/acceptance/trino/etc:/etc/trino:ro
       - ./test/acceptance/trino/healthcheck.sh:/usr/local/bin/trino-healthcheck.sh:ro
+      # Survives a `docker compose run --rm test` that recreates the
+      # coordinator, so Iceberg metadata in the metastore keeps resolving.
+      - iceberg-warehouse:/warehouse
+    depends_on:
+      iceberg-warehouse-init:
+        condition: service_completed_successfully
     healthcheck:
       # Waits for `starting:false`, not just the first HTTP response; see the
       # script for why the check is not inline.
@@ -17,8 +64,8 @@ services:
       retries: 30
       start_period: 60s
 
-  # One-shot: creates the `memory` and `hive` catalogs over SQL. Required
-  # because catalog.store=memory makes the coordinator ignore
+  # One-shot: creates the `memory`, `hive` and `iceberg` catalogs over SQL.
+  # Required because catalog.store=memory makes the coordinator ignore
   # etc/catalog/*.properties (see test/acceptance/trino/init-catalogs.sh).
   trino-init:
     image: trinodb/trino:${TRINO_VERSION:-484}
@@ -27,6 +74,10 @@ services:
     entrypoint: ["bash", "/usr/local/bin/init-catalogs.sh"]
     depends_on:
       trino:
+        condition: service_healthy
+      # The Iceberg catalog is created over SQL and its properties are
+      # validated against the metastore.
+      hive-metastore:
         condition: service_healthy
 
   test:
@@ -60,6 +111,8 @@ services:
       TRINO_AUTH: "none"
       TRINO_CATALOG: "hive"
       TRINO_TEST_CATALOG: "memory"
+      # Iceberg catalog backed by hive-metastore; materialized-view tests use it.
+      TRINO_ICEBERG_CATALOG: "iceberg"
       # Set by `make testacc-matrix`/CI so PreCheck fails immediately when the
       # image tag does not match the version under test.
       TRINO_EXPECT_VERSION: "${TRINO_EXPECT_VERSION:-}"
@@ -69,3 +122,4 @@ services:
 
 volumes:
   go-modules:
+  iceberg-warehouse:

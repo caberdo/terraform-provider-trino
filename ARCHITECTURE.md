@@ -112,10 +112,13 @@ translate the classification into diagnostics:
 Acceptance fixtures (schemas, tables and views used by grant and listing tests)
 are created through the same executor in `internal/acctest`, with cleanup,
 because the provider deliberately does not manage tables. The compose
-environment provides two catalogs: `memory` for schema lifecycle and catalog
-UDFs, and `hive` (file metastore, `sql-standard` security) for roles, role
-grants, table grants, catalog UDFs and table/view listing. Catalog, role
-and grant tests must **not** skip when `TF_ACC` is set: a missing capability is
+environment provides three catalogs: `memory` for schema lifecycle and catalog
+UDFs, `hive` (file metastore, `sql-standard` security) for roles, role
+grants, table grants, catalog UDFs and table/view listing, and `iceberg` (Hive
+metastore) for materialized views and Iceberg-specific behaviour. `iceberg`
+needs the metastore because Trino rejects `CREATE MATERIALIZED VIEW` on the
+Iceberg REST catalog. Catalog, role and grant tests must **not** skip when
+`TF_ACC` is set: a missing capability is
 an environment failure, not a pass. `TRINO_EXPECT_VERSION` makes `PreCheck`
 probe `SELECT version()` and fail when the coordinator is not the release under
 test; the matrix itself is selected from `.github/trino-versions.txt`.

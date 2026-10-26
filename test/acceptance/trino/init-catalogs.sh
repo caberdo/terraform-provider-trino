@@ -90,4 +90,18 @@ sql "CREATE CATALOG hive USING hive WITH (
   \"$local_filesystem_property\" = 'true'
 )"
 
+# `iceberg` backs materialized-view acceptance. Trino supports CREATE
+# MATERIALIZED VIEW only on Iceberg catalogs backed by a Hive metastore: the
+# REST catalog fails with "createMaterializedView is not supported for Iceberg
+# REST catalog". It therefore uses the `hive-metastore` service, not the file
+# metastore behind `hive`, and writes its warehouse into the named volume
+# mounted at /warehouse. Data and metadata paths stay valid across the
+# coordinator recreated by `docker compose run --rm test`; tables that outlive
+# a run are dropped by each test's own fixture.
+reset_catalog iceberg
+sql "CREATE CATALOG iceberg USING iceberg WITH (
+  \"hive.metastore.uri\" = 'thrift://hive-metastore:9083',
+  \"$local_filesystem_property\" = 'true'
+)"
+
 sql 'SHOW CATALOGS'
