@@ -19,6 +19,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their committed seed corpora in CI; `make fuzz` explores new inputs.
 - The unused `.github/github-action-markdown-link-check-config.json` was
   removed: no workflow consumed it.
+- Documentation now covers operating the project end to end: a maintainer
+  release runbook (`contributing/releasing.md`) with the mandatory GraphQL
+  merge-queue step, artifact verification and recovery; a README troubleshooting
+  table for the first-run failures; the complete `make` target list; and the Go
+  version required to build from source.
 
 ### Fixed
 
