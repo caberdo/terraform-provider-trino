@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+- `trino_tables` data source: table and view names with `table_type`, optional
+  case-insensitive `name_prefix` and `table_type` filters, deterministic
+  ordering and a missing-schema diagnostic.
+- `trino_table_privileges` accepts schema-wide queries: `table` is now
+  optional, each returned privilege names its `table_name`, and exact-table
+  queries keep their original SQL and rows.
+- `trino_function` resource for catalog UDFs (SQL routines) on connectors with
+  UDF storage, including import, token-normalised definition drift detection,
+  signature-aware `DROP FUNCTION`, and connector-named diagnostics for
+  unsupported catalogs.
+- Documented the `trino_view` spike and its recommendation in
+  `contributing/view-spike.md`.
+- Added a "Verified unsupported" README section for `DENY`, schema-level
+  grants, system roles and catalog property read-back, with sources,
+  re-check triggers and the check date.
+
 ### Changed
 
 - CI enforces per-package coverage floors from `.github/coverage-floors.txt`

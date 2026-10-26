@@ -34,6 +34,18 @@ resource "trino_catalog" "analytics" {
   connector = "memory"
 }
 
+# A catalog UDF stored by the connector. The Hive and Memory connectors both
+# implement UDF storage. Trino normalises the definition, so the provider
+# compares it token by token; import reads the normalised form back.
+resource "trino_function" "add_one" {
+  catalog    = trino_catalog.analytics.name
+  schema     = trino_schema.sales.name
+  name       = "add_one"
+  definition = "(x bigint) RETURNS bigint RETURN x + 1"
+
+  depends_on = [trino_schema.sales]
+}
+
 # The schema lives in the catalog above, so the catalog is created first.
 # `owner` is optional/computed: Trino reports the creating user and the next
 # refresh adopts it, which is intentional rather than a diff.

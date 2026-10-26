@@ -1,17 +1,18 @@
 # Terraform Provider for Trino
 
 A Terraform provider for the [Trino](https://trino.io/) control plane: catalogs,
-schemas, catalog roles, role grants and table privilege grants, managed through
-SQL DDL.
+schemas, catalog roles, role grants, table privilege grants and catalog
+user-defined functions, managed through SQL DDL.
 
 The provider is a thin translation layer between Terraform state and Trino. It
 owns no truth of its own: every read is a SQL query, every mutation is a DDL
 statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
-> **Status:** v0.1.x released. The five resources and four data sources are
-> implemented, documented and covered by unit, protocol and Docker acceptance
-> tests.
+> **Status:** v0.1.x released. The v0.2 line adds `trino_function`, the
+> `trino_tables` data source and schema-wide privilege listing; the six
+> resources and five data sources are implemented, documented and covered by
+> unit, protocol and Docker acceptance tests.
 
 ## Requirements
 
@@ -136,6 +137,7 @@ for a reproducible KDC and Trino setup.
 | [`trino_role`](docs/resources/role.md) | `CREATE/DROP ROLE` in a catalog | `catalog.role` |
 | [`trino_grant_role`](docs/resources/grant_role.md) | `GRANT/REVOKE` a role to a principal | `catalog.role:grantee_type:grantee` |
 | [`trino_grant_privileges`](docs/resources/grant_privileges.md) | `GRANT/REVOKE` table privileges | `catalog.schema.table:grantee_type:grantee` |
+| [`trino_function`](docs/resources/function.md) | `CREATE/DROP FUNCTION` catalog UDFs (SQL routines) | `catalog.schema.name` |
 
 ## Data sources
 
@@ -144,12 +146,14 @@ for a reproducible KDC and Trino setup.
 | [`trino_catalogs`](docs/data-sources/catalogs.md) | Catalog names and connectors, optional `name_prefix` filter. |
 | [`trino_schemas`](docs/data-sources/schemas.md) | Schema names for a catalog. |
 | [`trino_roles`](docs/data-sources/roles.md) | Catalog role names. |
-| [`trino_table_privileges`](docs/data-sources/table_privileges.md) | Grantees, privilege types and grantability for a table. |
+| [`trino_tables`](docs/data-sources/tables.md) | Table and view names with `table_type`, optional prefix and type filters. |
+| [`trino_table_privileges`](docs/data-sources/table_privileges.md) | Grantees, privilege types and grantability for a table, or for every table in a schema when `table` is omitted. |
 
 ## Read-back matrix
 
 The provider never claims drift detection it does not implement. This table is
-the contract and is reproduced in the generated resource pages.
+the contract; the generated resource pages document attributes and import IDs,
+while the matrix records what each `Read` can detect.
 
 | Resource | Existence | Configured drift | Out-of-band revocation |
 |---|---|---|---|
@@ -158,6 +162,7 @@ the contract and is reproduced in the generated resource pages.
 | `trino_role` | `SHOW ROLES` | `catalog`/`name` only | Role dropped → detected |
 | `trino_grant_role` | None | None | **Not detected** (state-authoritative) |
 | `trino_grant_privileges` | `information_schema.table_privileges` | Privileges and grant option | Detected |
+| `trino_function` | `SHOW FUNCTIONS` | Definition compared token by token from `SHOW CREATE FUNCTION` | Function dropped → detected |
 
 ## Known limitations
 
@@ -192,6 +197,30 @@ the contract and is reproduced in the generated resource pages.
 - **SQL-standard Hive needs an enabled role.** Set
   `roles = { hive = "admin" }` (C17). The file metastore auto-grants `admin` to
   `admin`/`hive`/`hdfs`, which is how a fresh environment bootstraps.
+- **Catalog UDFs need a connector that stores them.** `trino_function` works on
+  the Hive and Memory connectors. A connector without UDF storage produces a
+  diagnostic that names the connector and the requirement instead of a raw
+  `NOT_SUPPORTED`. Python and other external-language functions are out of
+  scope; only SQL routines are managed.
+- **`trino_function.definition` is raw SQL.** The provider quotes the catalog,
+  schema and function name, but the routine body is authored SQL and is not
+  escaped. It must start with the parameter list and include `RETURNS`.
+- **Function definitions are normalised by Trino.** `SHOW CREATE FUNCTION`
+  lowercases keywords, adds parentheses around compound `RETURN` expressions
+  and drops comments. The provider compares definitions token by token, so
+  those cosmetic differences do not cause a diff; a semantic change does.
+- **One function signature per resource.** Trino allows overloads with the same
+  name. The provider matches the signature in `definition`, but the import ID
+  `catalog.schema.name` cannot choose between existing overloads; importing an
+  overloaded name fails with an actionable diagnostic until one remains.
+- **Schema-wide privilege visibility follows authorization.** Omitting `table`
+  on `trino_table_privileges` returns every grant the provider user can see in
+  the schema. Use an admin identity for a complete picture.
+- **No view or materialized-view resource.** `trino_tables` lists views, but the
+  provider does not manage them. Views are deferred because Hive can keep a
+  stale stored definition after a column rename (see the
+  [spike findings](contributing/view-spike.md)); materialized views are blocked
+  on an Iceberg catalog in the acceptance environment.
 
 ## Troubleshooting
 
@@ -217,6 +246,7 @@ The error classification behind these diagnostics is described in
 | `trino_role` | Role-admin rights on the catalog; the creating user becomes role admin. |
 | `trino_grant_role` | `WITH ADMIN OPTION` on the role being granted. |
 | `trino_grant_privileges` | Ownership or admin rights on the table, and `GRANT OPTION` to delegate it. |
+| `trino_function` | `CREATE FUNCTION` / `DROP FUNCTION` on the catalog and schema, and a connector that implements catalog UDF storage. |
 
 ## Version policy
 
@@ -276,6 +306,21 @@ The contribution workflow, review gates and contract-change protocol are in
 The coverage gate fails below **80%** (`./scripts/coverage-gate.sh`).
 <!-- coverage:end -->
 
+## Verified unsupported
+
+These capabilities are rejected or absent for reasons verifiable in Trino
+itself, not because they were deferred. Checked on 2026-10-26 against the
+Trino 484 documentation and the connectors shipped with Trino.
+
+| Capability | Why a bundled connector cannot support it | Re-check trigger |
+|---|---|---|
+| `DENY` | Trino 484, [DENY — Limitations](https://trino.io/docs/484/sql/deny.html): "The system access controls as well as the connectors provided by default in Trino have no support for `DENY`." | A bundled connector or system access control implements `DENY`. |
+| Schema-level grants | `GRANT ... ON SCHEMA` parses, but `SqlStandardAccessControlMetadata` (the Hive implementation of roles and table grants) throws "This connector does not support grants on schemas". See [GRANT](https://trino.io/docs/484/sql/grant.html). | A bundled connector implements `grantSchemaPrivileges`. |
+| System roles | Stock Trino binds `DisabledSystemSecurityMetadata`, which reports "System roles are not enabled"; no bundled access-control plugin enables it. See [CREATE ROLE](https://trino.io/docs/484/sql/create-role.html). | A bundled connector enables system security metadata. |
+| Catalog property read-back | [`system.metadata.catalogs`](https://trino.io/docs/484/connector/system.html#metadata-tables) exposes catalog names and connectors, not the configured property values. Without a read path there is no import or property drift. See [`trino_catalog`](docs/resources/catalog.md). | `system.metadata` exposes catalog properties, or a connector adds a read path for them. |
+
+These entries are the public record for the corresponding design non-goals.
+
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) — request flow, executor internals, error
@@ -285,6 +330,8 @@ The coverage gate fails below **80%** (`./scripts/coverage-gate.sh`).
   publish, verification and recovery path.
 - [Security](SECURITY.md) — supported versions, threat model and reporting.
 - [Changelog](CHANGELOG.md).
+- [View spike findings](contributing/view-spike.md) — why `trino_view` is not
+  shipped yet and what a future implementation may claim.
 - [Generated provider docs](docs/index.md).
 
 ## Licence

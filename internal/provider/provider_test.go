@@ -39,6 +39,7 @@ func TestProviderRegistersAllTypes(t *testing.T) {
 		"trino_role",
 		"trino_grant_role",
 		"trino_grant_privileges",
+		"trino_function",
 	}
 	if len(resourceNames) != len(wantResources) {
 		t.Fatalf("Resources() returned %d types, want %d: %v", len(resourceNames), len(wantResources), resourceNames)
@@ -60,6 +61,7 @@ func TestProviderRegistersAllTypes(t *testing.T) {
 		"trino_schemas",
 		"trino_roles",
 		"trino_table_privileges",
+		"trino_tables",
 	}
 	if len(dataSourceNames) != len(wantDataSources) {
 		t.Fatalf("DataSources() returned %d types, want %d: %v", len(dataSourceNames), len(wantDataSources), dataSourceNames)

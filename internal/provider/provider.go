@@ -15,8 +15,10 @@ import (
 	"github.com/caberdo/terraform-provider-trino/internal/datasources/roles"
 	"github.com/caberdo/terraform-provider-trino/internal/datasources/schemas"
 	"github.com/caberdo/terraform-provider-trino/internal/datasources/tableprivileges"
+	"github.com/caberdo/terraform-provider-trino/internal/datasources/tables"
 	"github.com/caberdo/terraform-provider-trino/internal/providerdata"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/catalog"
+	"github.com/caberdo/terraform-provider-trino/internal/resources/function"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/grantprivileges"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/grantrole"
 	"github.com/caberdo/terraform-provider-trino/internal/resources/role"
@@ -48,7 +50,7 @@ func (p *TrinoProvider) Metadata(_ context.Context, _ provider.MetadataRequest, 
 
 func (p *TrinoProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = providerschema.Schema{
-		Description: "Manage Trino catalogs, schemas, roles and grants.",
+		Description: "Manage Trino catalogs, schemas, roles, grants and catalog user-defined functions.",
 		Attributes: map[string]providerschema.Attribute{
 			"endpoint": providerschema.StringAttribute{
 				Optional:    true,
@@ -285,6 +287,7 @@ func (p *TrinoProvider) Resources(context.Context) []func() resource.Resource {
 		role.New,
 		grantrole.New,
 		grantprivileges.New,
+		function.New,
 	}
 }
 
@@ -294,6 +297,7 @@ func (p *TrinoProvider) DataSources(context.Context) []func() datasource.DataSou
 		schemas.New,
 		roles.New,
 		tableprivileges.New,
+		tables.New,
 	}
 }
 

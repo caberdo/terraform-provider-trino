@@ -69,6 +69,7 @@ func TestTablePrivilegesReadSQL(t *testing.T) {
 		t.Fatalf("expected 3 privileges, got %d", len(entries))
 	}
 	type row struct {
+		tableName     string
 		privilegeType string
 		grantee       string
 		grantable     bool
@@ -76,15 +77,16 @@ func TestTablePrivilegesReadSQL(t *testing.T) {
 	got := make([]row, len(entries))
 	for i, entry := range entries {
 		got[i] = row{
+			tableName:     entry.TableName.ValueString(),
 			privilegeType: entry.PrivilegeType.ValueString(),
 			grantee:       entry.Grantee.ValueString(),
 			grantable:     entry.IsGrantable.ValueBool(),
 		}
 	}
 	want := []row{
-		{privilegeType: "INSERT", grantee: "alice", grantable: false},
-		{privilegeType: "SELECT", grantee: "alice", grantable: true},
-		{privilegeType: "SELECT", grantee: "bob", grantable: false},
+		{tableName: "acc_ds_orders", privilegeType: "INSERT", grantee: "alice", grantable: false},
+		{tableName: "acc_ds_orders", privilegeType: "SELECT", grantee: "alice", grantable: true},
+		{tableName: "acc_ds_orders", privilegeType: "SELECT", grantee: "bob", grantable: false},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("privileges = %v, want %v", got, want)
@@ -117,6 +119,143 @@ func TestTablePrivilegesEmptyResult(t *testing.T) {
 	}
 	if got := len(result.Privileges.Elements()); got != 0 {
 		t.Fatalf("expected 0 privileges, got %d", got)
+	}
+}
+
+func TestTablePrivilegesSchemaWide(t *testing.T) {
+	fake := &trinotest.FakeExecutor{
+		Steps: []trinotest.Step{
+			{Rows: []trino.Row{{"schema_name": "acc_ds_sales"}}},
+			{Rows: []trino.Row{
+				{"table_name": "orders", "grantee": "bob", "grantee_type": "USER", "privilege_type": "SELECT", "is_grantable": "NO"},
+				{"table_name": "customers", "grantee": "alice", "grantee_type": "ROLE", "privilege_type": "INSERT", "is_grantable": "YES"},
+				{"table_name": "customers", "grantee": "alice", "grantee_type": "ROLE", "privilege_type": "SELECT", "is_grantable": "NO"},
+			}},
+		},
+	}
+	ds := newTestDataSource(t, fake)
+
+	result, diags := readTablePrivileges(t, ds, tablePrivilegesDataSourceModel{
+		Catalog:    types.StringValue("hive"),
+		Schema:     types.StringValue("acc_ds_sales"),
+		Table:      types.StringNull(),
+		Privileges: types.ListNull(privilegeElementType),
+	})
+	if diags.HasError() {
+		t.Fatalf("read diagnostics: %v", diags)
+	}
+
+	if len(fake.Calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(fake.Calls))
+	}
+	if fake.Calls[0].Statement != `SHOW SCHEMAS FROM "hive"` {
+		t.Fatalf("schema statement = %q", fake.Calls[0].Statement)
+	}
+	wantStatement := `SELECT table_name, grantee, grantee_type, privilege_type, is_grantable FROM "hive"."information_schema"."table_privileges" WHERE table_schema = ? ORDER BY table_name, privilege_type, grantee`
+	if fake.Calls[1].Statement != wantStatement {
+		t.Fatalf("privileges statement = %q, want %q", fake.Calls[1].Statement, wantStatement)
+	}
+	if !reflect.DeepEqual(fake.Calls[1].Args, []any{"acc_ds_sales"}) {
+		t.Fatalf("privileges args = %v, want [acc_ds_sales]", fake.Calls[1].Args)
+	}
+
+	var entries []tablePrivilegeEntry
+	if diags := result.Privileges.ElementsAs(context.Background(), &entries, false); diags.HasError() {
+		t.Fatalf("decode privileges: %v", diags)
+	}
+	type row struct {
+		tableName     string
+		privilegeType string
+		grantee       string
+	}
+	got := make([]row, len(entries))
+	for i, entry := range entries {
+		got[i] = row{
+			tableName:     entry.TableName.ValueString(),
+			privilegeType: entry.PrivilegeType.ValueString(),
+			grantee:       entry.Grantee.ValueString(),
+		}
+	}
+	want := []row{
+		{tableName: "customers", privilegeType: "INSERT", grantee: "alice"},
+		{tableName: "customers", privilegeType: "SELECT", grantee: "alice"},
+		{tableName: "orders", privilegeType: "SELECT", grantee: "bob"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("privileges = %v, want %v", got, want)
+	}
+}
+
+func TestTablePrivilegesSchemaWideEmptyResult(t *testing.T) {
+	fake := &trinotest.FakeExecutor{
+		Steps: []trinotest.Step{
+			{Rows: []trino.Row{{"schema_name": "acc_ds_sales"}}},
+			{},
+		},
+	}
+	ds := newTestDataSource(t, fake)
+
+	result, diags := readTablePrivileges(t, ds, tablePrivilegesDataSourceModel{
+		Catalog:    types.StringValue("hive"),
+		Schema:     types.StringValue("acc_ds_sales"),
+		Table:      types.StringNull(),
+		Privileges: types.ListNull(privilegeElementType),
+	})
+	if diags.HasError() {
+		t.Fatalf("read diagnostics: %v", diags)
+	}
+	if result.Privileges.IsNull() {
+		t.Fatal("privileges is null, want an empty list")
+	}
+	if got := len(result.Privileges.Elements()); got != 0 {
+		t.Fatalf("expected 0 privileges, got %d", got)
+	}
+}
+
+func TestTablePrivilegesSchemaWideMissingSchema(t *testing.T) {
+	fake := &trinotest.FakeExecutor{
+		Steps: []trinotest.Step{
+			{Rows: []trino.Row{{"schema_name": "other"}}},
+		},
+	}
+	ds := newTestDataSource(t, fake)
+
+	_, diags := readTablePrivileges(t, ds, tablePrivilegesDataSourceModel{
+		Catalog:    types.StringValue("hive"),
+		Schema:     types.StringValue("missing"),
+		Table:      types.StringNull(),
+		Privileges: types.ListNull(privilegeElementType),
+	})
+	if !diags.HasError() {
+		t.Fatal("expected an error when the schema does not exist")
+	}
+	if len(fake.Calls) != 1 {
+		t.Fatalf("expected only the schema check, got %d calls", len(fake.Calls))
+	}
+	if !strings.Contains(diags[0].Summary(), "Schema not found") {
+		t.Fatalf("diagnostic summary = %q, want Schema not found", diags[0].Summary())
+	}
+}
+
+func TestTablePrivilegesSchemaAttributes(t *testing.T) {
+	schema := testSchema(t, New())
+
+	for name, want := range map[string]struct{ required, optional bool }{
+		"catalog":    {required: true},
+		"schema":     {required: true},
+		"table":      {optional: true},
+		"privileges": {},
+	} {
+		attribute, ok := schema.Attributes[name]
+		if !ok {
+			t.Fatalf("missing attribute %q", name)
+		}
+		if attribute.IsRequired() != want.required {
+			t.Fatalf("%s required = %t, want %t", name, attribute.IsRequired(), want.required)
+		}
+		if attribute.IsOptional() != want.optional {
+			t.Fatalf("%s optional = %t, want %t", name, attribute.IsOptional(), want.optional)
+		}
 	}
 }
 
