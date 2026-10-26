@@ -32,10 +32,17 @@ jobs:
           go-version-file: "go.mod"
           cache: true
 
+      # Build the linter with the toolchain in go.mod instead of downloading the
+      # prebuilt binary. Released binaries are built with an older Go (v2.15.0
+      # ships go1.27.0), which cannot read Go 1.27.3 export data: the lint run
+      # fails with "export data version 5 is greater than maximum supported
+      # version 4". goinstall mode compiles v2.15.0 with the same Go as the
+      # module, so the two stay in step.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.13.2
+          version: v2.15.0
+          install-mode: goinstall
           args: --config .golangci.yml
 
       # Dependency vulnerabilities are invisible to gosec and CodeQL, which
