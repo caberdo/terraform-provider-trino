@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The acceptance environment runs an `iceberg` catalog backed by a Hive
+  metastore (Hive 3.1.3, `iceberg-warehouse` volume). Trino rejects
+  `CREATE MATERIALIZED VIEW` on Iceberg REST catalogs, so the metastore is the
+  prerequisite for `trino_materialized_view` (#49); an acceptance test now
+  proves create, refresh, definition read-back and freshness without an
+  implicit refresh on the supported floor and newest release.
 - `trino_tables` data source: table and view names with `table_type`, optional
   case-insensitive `name_prefix` and `table_type` filters, deterministic
   ordering and a missing-schema diagnostic.

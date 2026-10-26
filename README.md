@@ -219,8 +219,9 @@ while the matrix records what each `Read` can detect.
 - **No view or materialized-view resource.** `trino_tables` lists views, but the
   provider does not manage them. Views are deferred because Hive can keep a
   stale stored definition after a column rename (see the
-  [spike findings](contributing/view-spike.md)); materialized views are blocked
-  on an Iceberg catalog in the acceptance environment.
+  [spike findings](contributing/view-spike.md)). Materialized views are not
+  managed yet; the acceptance environment now runs an Iceberg catalog backed by
+  a Hive metastore, which is what that resource needs (issue #49).
 
 ## Troubleshooting
 
@@ -288,7 +289,10 @@ the `GNUmakefile` targets:
 | `make validate-examples` | `terraform fmt`/`validate` every example. |
 | `make generate` | Regenerate `docs/` with `tfplugindocs`. |
 
-Acceptance tests need Docker Compose (Podman works too: `COMPOSE=podman-compose`):
+Acceptance tests need Docker Compose (Podman works too: `COMPOSE=podman-compose`).
+The compose environment runs three catalogs: `memory`, `hive` (file metastore)
+and `iceberg` (Hive metastore, used for materialized-view behaviour and
+Iceberg-specific reads):
 
 ```bash
 make testacc-docker TRINO_VERSION=484
