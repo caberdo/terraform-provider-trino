@@ -1,0 +1,31 @@
+# Per-package statement coverage floors for scripts/coverage-gate.sh.
+#
+# Every package returned by `go list ./internal/...` is measured against its
+# entry here, or against `default` when it has no entry. A package that exists
+# but has no tests is measured at 0% and therefore fails the gate; add the
+# package explicitly when it first needs a lower floor.
+#
+# Floors are percentages of statement coverage in the unit profile
+# (`coverage.out`) and must stay at or below the measured value on `main`.
+# Raise a floor when coverage improves; lower one deliberately, in the same
+# pull request, with a comment explaining why. `CONTRIBUTING.md` describes the
+# procedure.
+#
+# Format: <package> <percent>
+default 70
+
+internal/acctest 85
+internal/datasources/catalogs 74
+internal/datasources/roles 74
+internal/datasources/schemas 74
+internal/datasources/tableprivileges 71
+internal/provider 88
+internal/providerdata 100
+internal/resources/catalog 74
+internal/resources/grantprivileges 75
+internal/resources/grantrole 66
+internal/resources/role 68
+internal/resources/schema 82
+internal/resourceutil 95
+internal/trino 87
+internal/trinotest 85

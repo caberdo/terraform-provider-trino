@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- CI enforces per-package coverage floors from `.github/coverage-floors.txt`
+  in addition to the module total, discovers the package list with
+  `go list ./internal/...`, and names every package below its floor.
+- `Lint & Security` runs `govulncheck` and fails on vulnerabilities that affect
+  called code; accepted findings live in `.github/govulncheck-accepted.txt`.
+  The Go toolchain is now 1.27.3 and `google.golang.org/grpc` is 1.83.2, which
+  clears the reachable findings in the standard library and grpc.
+- The fuzz targets for identifier/literal quoting and the schema parser run
+  their committed seed corpora in CI; `make fuzz` explores new inputs.
+- The unused `.github/github-action-markdown-link-check-config.json` was
+  removed: no workflow consumed it.
+
 ### Fixed
 
 - The version probe no longer caches a failed `SELECT version()`: a transport

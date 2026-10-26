@@ -1,0 +1,12 @@
+# OSV IDs accepted by scripts/govulncheck.sh.
+#
+# One finding per line: the OSV ID, whitespace, then the reason it is accepted.
+# Comments and blank lines are ignored. Only add an entry when the dependency
+# cannot be upgraded yet or the affected code path cannot be reached by this
+# provider; a missing fix is a temporary state, not a permanent exemption.
+#
+# Example:
+#   GO-2026-1234  no fixed release; the affected xDS path is never configured
+#
+# The gate prints accepted entries on every run and warns when an entry no
+# longer matches, so entries are revisited instead of forgotten.
