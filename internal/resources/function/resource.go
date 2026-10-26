@@ -496,7 +496,7 @@ func createStatement(plan model, orReplace bool) string {
 	b.WriteString("FUNCTION ")
 	b.WriteString(trino.QuoteQualified(plan.Catalog.ValueString(), plan.Schema.ValueString(), plan.Name.ValueString()))
 	b.WriteString(" ")
-	b.WriteString(trimStatement(plan.Definition.ValueString()))
+	b.WriteString(resourceutil.TrimStatement(plan.Definition.ValueString()))
 	return b.String()
 }
 
