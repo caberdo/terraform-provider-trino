@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `trino_view` resource for SQL views: quoted `CREATE`/`DROP VIEW`,
+  `CREATE OR REPLACE VIEW` for definition and security changes, import by
+  `catalog.schema.name`, existence from `information_schema.tables` with
+  case-insensitive resolution of the stored name, `security` read from
+  `SHOW CREATE VIEW`, and a write-only `definition` because Trino normalises it
+  and Hive keeps a stale definition after an underlying column rename. The
+  acceptance suite runs the lifecycle on `hive` (sql-standard security with the
+  `admin` role) and `memory` (including `SECURITY INVOKER` drift).
 - `trino_materialized_view` resource for connector-backed materialized views:
   quoted `CREATE`/`DROP MATERIALIZED VIEW` with raw-SQL `properties` and
   `grace_period`, import by `catalog.schema.name`, existence read-back from

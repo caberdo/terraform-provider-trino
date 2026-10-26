@@ -124,3 +124,14 @@ resource "trino_materialized_view" "events_by_region" {
   refresh_on_create = true
   refresh_token     = "2026-10-26"
 }
+
+# Views are definitions, not data. `definition` is write-only: Trino stores a
+# normalised form and Hive keeps a stale definition after an underlying column
+# rename, so only `security` is read back. The source table must exist before
+# this module is applied; the commands above create `hive.default.orders`.
+resource "trino_view" "orders_by_id" {
+  catalog    = "hive"
+  schema     = "default"
+  name       = "orders_by_id"
+  definition = "SELECT id FROM hive.default.orders"
+}

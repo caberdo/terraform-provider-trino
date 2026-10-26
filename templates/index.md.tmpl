@@ -2,15 +2,15 @@
 page_title: "Trino Provider"
 subcategory: ""
 description: |-
-  Terraform provider for the Trino control plane: catalogs, schemas, catalog roles, role grants, table privilege grants, catalog user-defined functions and materialized views managed through SQL DDL.
+  Terraform provider for the Trino control plane: catalogs, schemas, catalog roles, role grants, table privilege grants, catalog user-defined functions, views and materialized views managed through SQL DDL.
 ---
 
 # Trino Provider
 
 Terraform provider for the [Trino](https://trino.io/) control plane. It manages
 catalogs, schemas, catalog roles, role grants, table privilege grants, catalog
-user-defined functions and materialized views by translating Terraform resources
-into Trino SQL DDL.
+user-defined functions, views and materialized views by translating Terraform
+resources into Trino SQL DDL.
 
 Every read is a SQL query and every mutation is a DDL statement. Where Trino
 exposes no read path, the resource documents that its read is

@@ -1,6 +1,7 @@
 # `trino_view` spike findings
 
-Status: phase 1 complete, implementation deferred to a follow-up issue.
+Status: phase 1 complete; the resource shipped with the recommended contract
+(`internal/resources/view`), with `definition` write-only and `security` drift.
 Checked on 2026-10-26 against Trino **476** and **484**.
 
 ## Environment
@@ -89,11 +90,26 @@ A view appears in `information_schema.tables` with `table_type = 'VIEW'`, and
 when the object is absent. Existence and removal from state are therefore reliable on both
 connectors.
 
+### Hive lowercases the stored name
+
+`CREATE VIEW hive.spike."MyView"` succeeds and stores `myview`.
+`SHOW CREATE VIEW hive.spike."MyView"` then fails with
+`objectName is not lowercase: MyView`, so a quoted read with the configured
+spelling is not reliable on Hive. Queried with
+`lower(table_schema) = lower(?)`, `information_schema.tables` reports the stored
+spelling (`zz_case`, `myview`), which a quoted `SHOW CREATE VIEW` accepts. The
+resource therefore resolves existence and the stored spelling in the
+information schema and uses the result for the follow-up statement. `DROP VIEW`
+accepts the configured spelling on Hive.
+
+The memory connector preserves the configured spelling, so the exact-case match
+wins there.
+
 ## Recommendation
 
 **Build `trino_view`, but do not claim definition drift detection.**
 
-Phase 2 should model:
+The delivered resource models:
 
 - `catalog`, `schema`, `name`;
 - `definition` (the `SELECT` query) as **write-only**, like catalog
@@ -117,13 +133,13 @@ Reasons for not comparing the SQL body:
   Terraform can actually repair.
 
 This is the "existence-only" option from the issue, plus the stable `security`
-attribute. It keeps the read-back matrix honest: the resource would document
-that `definition` is write-only.
+attribute. It keeps the read-back matrix honest: the resource documents that
+`definition` is write-only.
 
-## Follow-up work
+## Delivered contract
 
-- Implement `trino_view` as its own issue, with the contract above.
-- Add acceptance coverage on Hive (sql-standard + admin role) and memory, on
-  the full version window.
-- Add a limitation that renaming or dropping a referenced column can invalidate
-  a Hive view without changing its stored definition.
+- `internal/resources/view` implements `trino_view` with the contract above.
+- Acceptance covers Hive (sql-standard + admin role) and memory on the full
+  version window, including an out-of-band security change and drop.
+- The README limitation records that renaming or dropping a referenced column
+  can invalidate a Hive view without changing its stored definition.
