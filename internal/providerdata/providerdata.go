@@ -13,7 +13,6 @@ import (
 type Data struct {
 	Executor trino.Executor
 	Timeout  time.Duration
-	Version  string
 }
 
 // FromProviderData extracts Data from the untyped value the framework hands to

@@ -41,6 +41,17 @@ type Options struct {
 	HTTPClient                      *http.Client
 }
 
+// HTTP retry policy. Queries are idempotent, so the driver may re-send them
+// after a transient failure. A mutating statement is not: a request that
+// reached the coordinator but timed out client-side would fail on a retry with
+// ALREADY_EXISTS, so exec statements are sent exactly once and Terraform's own
+// apply/refresh cycle is the retry boundary.
+const (
+	requestRetryTimeout   = 2 * time.Minute
+	queryRetryAttempts    = 5
+	mutatingRetryAttempts = 1
+)
+
 // Open builds the driver configuration and returns the Executor the provider
 // hands to resources. It does not dial: the first statement opens a connection.
 func Open(opts Options) (Executor, error) {
@@ -48,6 +59,20 @@ func Open(opts Options) (Executor, error) {
 	if err != nil {
 		return nil, err
 	}
+	db, err := openPool(cfg)
+	if err != nil {
+		return nil, err
+	}
+	execDB, err := openPool(buildExecDriverConfig(cfg))
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return &sqlExecutor{db: db, execDB: execDB}, nil
+}
+
+// openPool wraps one connector in a database/sql pool.
+func openPool(cfg *drivertrino.Config) (*sql.DB, error) {
 	connector, err := drivertrino.NewConnector(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create Trino connector: %w", err)
@@ -56,7 +81,18 @@ func Open(opts Options) (Executor, error) {
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	return &sqlExecutor{db: db}, nil
+	return db, nil
+}
+
+// buildExecDriverConfig derives the configuration for mutating statements from
+// the query configuration: same endpoint, auth and session settings, but no
+// HTTP retries. NewConnector copies the configuration before use, so sharing
+// the maps and pointers with cfg is safe.
+func buildExecDriverConfig(cfg *drivertrino.Config) *drivertrino.Config {
+	execCfg := *cfg
+	attempts := mutatingRetryAttempts
+	execCfg.RequestRetryMaxAttempts = &attempts
+	return &execCfg
 }
 
 // buildDriverConfig is the pure auth-to-driver mapping, split out so it can be
@@ -119,9 +155,9 @@ func buildDriverConfig(opts Options) (*drivertrino.Config, error) {
 		timeout := opts.QueryTimeout
 		cfg.QueryTimeout = &timeout
 	}
-	retryTimeout := 2 * time.Minute
+	retryTimeout := requestRetryTimeout
 	cfg.RequestRetryTimeout = &retryTimeout
-	retryAttempts := 5
+	retryAttempts := queryRetryAttempts
 	cfg.RequestRetryMaxAttempts = &retryAttempts
 
 	switch opts.Auth {

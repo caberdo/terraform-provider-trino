@@ -2,7 +2,10 @@ package trino_test
 
 import (
 	"context"
+	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/caberdo/terraform-provider-trino/internal/trino"
 	"github.com/caberdo/terraform-provider-trino/internal/trinotest"
@@ -58,26 +61,74 @@ func TestExecutorExecSurfacesError(t *testing.T) {
 	}
 }
 
-func TestExecutorVersionCachesFailure(t *testing.T) {
+func TestExecutorVersionRetriesAfterProbeFailure(t *testing.T) {
 	server := trinotest.NewFakeServer(t, trinotest.Page{
-		Error: &trinotest.ProtoError{
-			Message:   "No access to system.runtime",
-			ErrorName: "PERMISSION_DENIED",
-			ErrorType: "USER_ERROR",
-		},
+		Columns: []trinotest.Column{{Name: "_col0", Type: "varchar"}},
+		Rows:    [][]any{{"484"}},
 	})
+	// A zero Status closes the connection: the first probe fails in transport.
+	server.FailNext(trinotest.Failure{})
 	executor := openExecutor(t, server)
 
-	for range 2 {
-		version, err := executor.Version(context.Background())
+	if _, err := executor.Version(context.Background()); err == nil {
+		t.Fatal("first Version succeeded, want the transport error")
+	}
+	version, err := executor.Version(context.Background())
+	if err != nil {
+		t.Fatalf("second Version: %v", err)
+	}
+	if version != "484" {
+		t.Errorf("version = %q, want 484", version)
+	}
+	version, err = executor.Version(context.Background())
+	if err != nil || version != "484" {
+		t.Errorf("cached Version = %q, %v, want 484", version, err)
+	}
+	// One closed probe, then a POST and one poll; the third call is cached.
+	if got := len(server.Requests()); got != 3 {
+		t.Errorf("got %d requests, want 3", got)
+	}
+}
+
+func TestExecutorVersionSingleFlight(t *testing.T) {
+	server := trinotest.NewFakeServer(t, trinotest.Page{})
+	release := server.BlockNext()
+	server.FailNext(trinotest.Failure{Status: http.StatusInternalServerError})
+	executor := openExecutor(t, server)
+
+	const callers = 8
+	entered := make(chan struct{}, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entered <- struct{}{}
+			_, err := executor.Version(context.Background())
+			errs <- err
+		}()
+	}
+	for range callers {
+		<-entered
+	}
+	server.WaitForRequests(1)
+	// The first probe is parked in the server; let the remaining callers join
+	// it instead of starting probes of their own.
+	time.Sleep(50 * time.Millisecond)
+	if got := len(server.Requests()); got != 1 {
+		t.Errorf("in-flight probes = %d, want 1", got)
+	}
+
+	release()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
 		if err == nil {
-			t.Fatalf("Version = %q, want the cached probe failure", version)
-		}
-		if trino.SourceOf(err) != trino.KindPermissionDenied {
-			t.Errorf("SourceOf = %q", trino.SourceOf(err))
+			t.Error("concurrent Version succeeded, want the shared probe failure")
 		}
 	}
-	if requests := server.Requests(); len(requests) != 2 {
-		t.Errorf("got %d requests, want the probe to be attempted once", len(requests))
+	if got := len(server.Requests()); got != 1 {
+		t.Errorf("got %d requests, want one shared probe", got)
 	}
 }

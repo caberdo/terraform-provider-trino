@@ -49,10 +49,17 @@ results and retries. The provider owns the lifecycle around it:
 - **Timeout** is a per-operation context from `providerdata.Data.Timeout`
   (`query_timeout`, default 5m). `trino.Config.QueryTimeout` additionally asks
   the server to cancel a runaway query; the shorter deadline wins.
-- **Retry** is driver-level for transient network errors and 502/503/504. Trino
-  semantic errors are classified and never retried.
-- **Version probe** runs `SELECT version()` once per process and is cached; a
-  failure is non-fatal and logged.
+- **Retry** is split by statement kind. Queries go through a pool with the
+  driver's transient-failure retries (5 attempts over 2 minutes for network
+  errors and 429/502/503/504). Mutating statements (`Exec`) go through a second
+  pool with retries disabled: Trino DDL is not idempotent, so a request that
+  succeeded server-side but timed out client-side is never re-sent and turned
+  into an `ALREADY_EXISTS`. Terraform's apply/refresh cycle is the retry
+  boundary for writes. Trino semantic errors are classified and never retried.
+- **Version probe** runs `SELECT version()` lazily and caches only a successful
+  result; a failed probe is retried by the next call. Concurrent callers share
+  one in-flight probe instead of stampeding the coordinator. A failure is
+  non-fatal and logged.
 
 ## Authentication matrix
 

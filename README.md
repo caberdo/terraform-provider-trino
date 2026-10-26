@@ -211,7 +211,8 @@ the contract and is reproduced in the generated resource pages.
   `main` and the merge queue run the whole window. A monthly workflow opens an
   issue when the window goes stale.
 - If the version probe fails, the provider logs a warning and proceeds
-  permissively; the server remains the authority on errors.
+  permissively; the server remains the authority on errors. A failed probe is
+  not cached, so the next caller retries it.
 - Kerberos requires HTTPS; keytab and credential cache are mutually exclusive,
   and the service principal pattern must not name a realm.
 

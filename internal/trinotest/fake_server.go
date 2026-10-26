@@ -44,16 +44,27 @@ type Request struct {
 	Body   string
 }
 
+// Failure is one injected response for the next request. A zero Status closes
+// the connection without a response, which the client sees as a transport
+// error. Delay holds the request before the response is produced.
+type Failure struct {
+	Status int
+	Delay  time.Duration
+}
+
 // FakeServer is a minimal Trino statement endpoint. The initial POST returns
 // only an id and a nextUri; every Page is served by a follow-up GET, which is
 // how the real coordinator hands out rows.
 type FakeServer struct {
-	t       *testing.T
-	server  *httptest.Server
-	pages   []Page
-	mu      sync.Mutex
-	calls   []Request
-	queryID int
+	t        *testing.T
+	server   *httptest.Server
+	pages    []Page
+	mu       sync.Mutex
+	cond     *sync.Cond
+	calls    []Request
+	failures []Failure
+	block    chan struct{}
+	queryID  int
 }
 
 // NewFakeServer starts a server that serves pages in order. It closes itself
@@ -61,6 +72,7 @@ type FakeServer struct {
 func NewFakeServer(t *testing.T, pages ...Page) *FakeServer {
 	t.Helper()
 	fake := &FakeServer{t: t, pages: pages}
+	fake.cond = sync.NewCond(&fake.mu)
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
 	return fake
@@ -78,6 +90,34 @@ func (s *FakeServer) Requests() []Request {
 	return append([]Request(nil), s.calls...)
 }
 
+// FailNext queues responses for the next requests, in order. Once the queue is
+// empty the server serves pages normally.
+func (s *FakeServer) FailNext(failures ...Failure) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failures = append(s.failures, failures...)
+}
+
+// BlockNext parks the next request until the returned function is called. It
+// lets a test hold a request in flight while other callers arrive.
+func (s *FakeServer) BlockNext() (release func()) {
+	blocked := make(chan struct{})
+	s.mu.Lock()
+	s.block = blocked
+	s.mu.Unlock()
+	var once sync.Once
+	return func() { once.Do(func() { close(blocked) }) }
+}
+
+// WaitForRequests blocks until the server has recorded at least n requests.
+func (s *FakeServer) WaitForRequests(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for len(s.calls) < n {
+		s.cond.Wait()
+	}
+}
+
 func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	s.mu.Lock()
@@ -87,7 +127,29 @@ func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		Header: r.Header.Clone(),
 		Body:   string(body),
 	})
+	block := s.block
+	s.block = nil
+	var failure Failure
+	hasFailure := false
+	if len(s.failures) > 0 {
+		failure = s.failures[0]
+		s.failures = s.failures[1:]
+		hasFailure = true
+	}
+	s.cond.Broadcast()
 	s.mu.Unlock()
+
+	if block != nil {
+		select {
+		case <-block:
+		case <-r.Context().Done():
+			return
+		}
+	}
+	if hasFailure {
+		s.injectFailure(w, r, failure)
+		return
+	}
 
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/statement":
@@ -105,6 +167,31 @@ func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *FakeServer) injectFailure(w http.ResponseWriter, r *http.Request, failure Failure) {
+	if failure.Delay > 0 {
+		select {
+		case <-time.After(failure.Delay):
+		case <-r.Context().Done():
+			return
+		}
+	}
+	if failure.Status != 0 {
+		http.Error(w, http.StatusText(failure.Status), failure.Status)
+		return
+	}
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		s.t.Errorf("fake server response does not support hijacking")
+		return
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		s.t.Errorf("hijack fake connection: %v", err)
+		return
+	}
+	_ = conn.Close()
 }
 
 func (s *FakeServer) servePage(w http.ResponseWriter, r *http.Request) {

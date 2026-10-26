@@ -1,6 +1,7 @@
 package trino
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
 	"time"
@@ -216,6 +217,28 @@ func TestOpenRejectsPasswordOverHTTP(t *testing.T) {
 	}
 }
 
+func TestBuildExecDriverConfigDisablesRetries(t *testing.T) {
+	opts := Options{Auth: "none", ServerURI: "http://trino.example.com:8080", User: "alice"}
+	queryCfg, err := buildDriverConfig(opts)
+	if err != nil {
+		t.Fatalf("buildDriverConfig: %v", err)
+	}
+	execCfg := buildExecDriverConfig(queryCfg)
+
+	if execCfg.RequestRetryMaxAttempts == nil || *execCfg.RequestRetryMaxAttempts != 1 {
+		t.Errorf("exec RequestRetryMaxAttempts = %v, want 1", execCfg.RequestRetryMaxAttempts)
+	}
+	if queryCfg.RequestRetryMaxAttempts == nil || *queryCfg.RequestRetryMaxAttempts != queryRetryAttempts {
+		t.Errorf("query RequestRetryMaxAttempts = %v, want %d", queryCfg.RequestRetryMaxAttempts, queryRetryAttempts)
+	}
+	if execCfg.ServerURI != queryCfg.ServerURI || execCfg.Source != queryCfg.Source {
+		t.Errorf("exec config lost the endpoint or source: %q %q", execCfg.ServerURI, execCfg.Source)
+	}
+	if execCfg.RequestRetryTimeout != queryCfg.RequestRetryTimeout {
+		t.Error("exec config did not keep the retry timeout")
+	}
+}
+
 func TestOpenDefaults(t *testing.T) {
 	executor, err := Open(Options{
 		Auth:      "none",
@@ -235,8 +258,12 @@ func TestOpenDefaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("Open returned %T, want *sqlExecutor", executor)
 	}
-	stats := sqlExecutor.db.Stats()
-	if stats.MaxOpenConnections != 2 {
-		t.Errorf("MaxOpenConnections = %d, want 2", stats.MaxOpenConnections)
+	for name, db := range map[string]*sql.DB{"query": sqlExecutor.db, "exec": sqlExecutor.execDB} {
+		if db == nil {
+			t.Fatalf("%s pool is nil", name)
+		}
+		if stats := db.Stats(); stats.MaxOpenConnections != 2 {
+			t.Errorf("%s MaxOpenConnections = %d, want 2", name, stats.MaxOpenConnections)
+		}
 	}
 }

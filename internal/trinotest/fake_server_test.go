@@ -3,6 +3,7 @@ package trinotest_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +195,84 @@ func TestExecutorContextCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("Query took %s, cancellation did not interrupt the poll", elapsed)
+	}
+}
+
+func TestExecutorExecDoesNotRetryMutatingStatement(t *testing.T) {
+	server := trinotest.NewFakeServer(t, trinotest.Page{})
+	server.FailNext(trinotest.Failure{Status: http.StatusServiceUnavailable})
+	executor := openFake(t, server, trino.Options{})
+
+	err := executor.Exec(context.Background(), "CREATE SCHEMA sales")
+	if err == nil {
+		t.Fatal("Exec succeeded, want the 503 surfaced")
+	}
+	if !strings.Contains(err.Error(), "503") {
+		t.Errorf("error %q does not report the 503", err)
+	}
+	requests := server.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("got %d requests, want the mutating statement sent once", len(requests))
+	}
+	if post := requests[0]; post.Method != http.MethodPost || post.Body != "CREATE SCHEMA sales" {
+		t.Errorf("request = %s %q", post.Method, post.Body)
+	}
+}
+
+func TestExecutorQueryRetriesTransientFailure(t *testing.T) {
+	server := trinotest.NewFakeServer(t, trinotest.Page{
+		Columns: []trinotest.Column{{Name: "n", Type: "bigint"}},
+		Rows:    [][]any{{int64(1)}},
+	})
+	server.FailNext(trinotest.Failure{Status: http.StatusServiceUnavailable})
+	executor := openFake(t, server, trino.Options{})
+
+	rows, err := executor.Query(context.Background(), "SELECT n FROM t")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	// The failed POST, the retried POST and one poll.
+	if got := len(server.Requests()); got != 3 {
+		t.Errorf("got %d requests, want 3", got)
+	}
+}
+
+func TestFakeServerClosesConnectionOnTransportFailure(t *testing.T) {
+	server := trinotest.NewFakeServer(t, trinotest.Page{})
+	server.FailNext(trinotest.Failure{})
+	executor := openFake(t, server, trino.Options{})
+
+	if _, err := executor.Query(context.Background(), "SELECT 1"); err == nil {
+		t.Fatal("Query succeeded, want the injected transport error")
+	}
+	if got := len(server.Requests()); got != 1 {
+		t.Errorf("got %d requests, want 1", got)
+	}
+}
+
+func TestFakeServerBlocksUntilReleased(t *testing.T) {
+	server := trinotest.NewFakeServer(t, trinotest.Page{})
+	executor := openFake(t, server, trino.Options{})
+	release := server.BlockNext()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := executor.Query(context.Background(), "SELECT 1")
+		done <- err
+	}()
+
+	server.WaitForRequests(1)
+	select {
+	case err := <-done:
+		t.Fatalf("Query completed while blocked: %v", err)
+	default:
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatalf("Query after release: %v", err)
 	}
 }
 
