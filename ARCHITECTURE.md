@@ -16,7 +16,8 @@ main.go ── providerserver.Serve ──► internal/provider
                     ▼                                          ▼
           internal/resources/*                       internal/datasources/*
           catalog, schema, role,                     catalogs, schemas, roles,
-          grantrole, grantprivileges, function       tableprivileges, tables
+          grantrole, grantprivileges, function,      tableprivileges, tables
+          materializedview
                     │                                          │
                     └──────────────► internal/trino ◄───────────┘
                                      Executor (database/sql)
@@ -68,6 +69,19 @@ results and retries. The provider owns the lifecycle around it:
   around `RETURN` expressions) does not create a perpetual diff. `DROP
   FUNCTION` needs the parameter types, which the provider parses from the
   definition.
+- **Materialized views** keep `trino_materialized_view` honest about a
+  connector-specific object. Existence comes from
+  `system.metadata.materialized_views`; `SHOW CREATE MATERIALIZED VIEW` supplies
+  the definition when an import has no query and is used to compare the
+  configured `properties` keys. The configured query is never replaced, because
+  Trino stores it in its own formatted form and rewriting the authored text
+  would create a permanent diff; Iceberg also reports storage properties
+  derived from the storage table, so unconfigured property keys are ignored.
+  `query` and `grace_period` are therefore write-only. `Read` never runs
+  `REFRESH MATERIALIZED VIEW`: refresh happens after `CREATE` when
+  `refresh_on_create` is true, and on apply when `refresh_token` changes.
+  Iceberg does not implement `ALTER MATERIALIZED VIEW SET PROPERTIES`, so every
+  configurable attribute except the refresh controls requires replacement.
 
 ## Authentication matrix
 
