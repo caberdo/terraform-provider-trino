@@ -15,8 +15,8 @@ main.go ── providerserver.Serve ──► internal/provider
                     ┌──────────────┘            └──────────────┐
                     ▼                                          ▼
           internal/resources/*                       internal/datasources/*
-          catalog, schema, role,                     catalogs, schemas,
-          grantrole, grantprivileges                 roles, tableprivileges
+          catalog, schema, role,                     catalogs, schemas, roles,
+          grantrole, grantprivileges, function       tableprivileges, tables
                     │                                          │
                     └──────────────► internal/trino ◄───────────┘
                                      Executor (database/sql)
@@ -60,6 +60,14 @@ results and retries. The provider owns the lifecycle around it:
   result; a failed probe is retried by the next call. Concurrent callers share
   one in-flight probe instead of stampeding the coordinator. A failure is
   non-fatal and logged.
+- **Catalog UDFs** are DDL with a raw SQL body. `trino_function` quotes the
+  catalog, schema and function name, then appends the configured definition as
+  authored SQL. Reads use `SHOW FUNCTIONS` for existence and
+  `SHOW CREATE FUNCTION` for the definition; the definition is compared as a
+  token sequence so Trino's normalisation (keyword case, comments, parentheses
+  around `RETURN` expressions) does not create a perpetual diff. `DROP
+  FUNCTION` needs the parameter types, which the provider parses from the
+  definition.
 
 ## Authentication matrix
 
@@ -101,11 +109,12 @@ translate the classification into diagnostics:
 | L3 — protocol | `internal/trino` against a fake `/v1/statement` server |
 | L4 — acceptance | real Trino in Docker, `TF_ACC=1` |
 
-Acceptance fixtures (schemas and tables used by grant tests) are created through
-the same executor in `internal/acctest`, with cleanup, because the provider
-deliberately does not manage tables. The compose environment provides two
-catalogs: `memory` for schema lifecycle and `hive` (file metastore,
-`sql-standard` security) for roles, role grants and table grants. Catalog, role
+Acceptance fixtures (schemas, tables and views used by grant and listing tests)
+are created through the same executor in `internal/acctest`, with cleanup,
+because the provider deliberately does not manage tables. The compose
+environment provides two catalogs: `memory` for schema lifecycle and catalog
+UDFs, and `hive` (file metastore, `sql-standard` security) for roles, role
+grants, table grants, catalog UDFs and table/view listing. Catalog, role
 and grant tests must **not** skip when `TF_ACC` is set: a missing capability is
 an environment failure, not a pass. `TRINO_EXPECT_VERSION` makes `PreCheck`
 probe `SELECT version()` and fail when the coordinator is not the release under

@@ -2,20 +2,28 @@
 page_title: "trino_table_privileges Data Source - trino"
 subcategory: ""
 description: |-
-  Lists the table privileges recorded for one Trino table.
+  Lists the table privileges recorded for one Trino table, or for every table in a schema when table is omitted. Visibility follows Trino authorization, so a non-admin provider user may only see its own grants.
 ---
 
 # trino_table_privileges Data Source
 
-Lists the table privileges recorded for one Trino table.
+Lists the table privileges recorded for one Trino table, or for every table in a schema when table is omitted. Visibility follows Trino authorization, so a non-admin provider user may only see its own grants.
 
 ## Example Usage
 
 ```terraform
-data "trino_table_privileges" "example" {
+# Schema-wide: every privilege recorded for every table in the schema.
+data "trino_table_privileges" "sales" {
   catalog = "hive"
-  schema  = "default"
-  table   = "example"
+  schema  = "sales"
+}
+
+# Exact table: the same query shape the data source used before schema-wide
+# listing existed. Each row also names its table.
+data "trino_table_privileges" "orders" {
+  catalog = "hive"
+  schema  = "sales"
+  table   = "orders"
 }
 ```
 
@@ -26,11 +34,14 @@ data "trino_table_privileges" "example" {
 
 - `catalog` (String) Catalog containing the table.
 - `schema` (String) Schema containing the table.
-- `table` (String) Table whose privileges should be listed.
+
+### Optional
+
+- `table` (String) Table whose privileges should be listed. When omitted, every table in the schema is included and each privilege row names its table.
 
 ### Read-Only
 
-- `privileges` (Attributes List) Privileges recorded for the table, sorted by privilege type and grantee. (see [below for nested schema](#nestedatt--privileges))
+- `privileges` (Attributes List) Privileges recorded for the table or schema, sorted by table name, privilege type and grantee. (see [below for nested schema](#nestedatt--privileges))
 
 <a id="nestedatt--privileges"></a>
 ### Nested Schema for `privileges`
@@ -41,3 +52,4 @@ Read-Only:
 - `grantee_type` (String) Type of the grantee, for example USER or ROLE.
 - `is_grantable` (Boolean) Whether the grantee may grant the privilege to others.
 - `privilege_type` (String) Privilege granted on the table.
+- `table_name` (String) Table the privilege applies to.

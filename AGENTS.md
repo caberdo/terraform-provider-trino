@@ -113,6 +113,7 @@ locally.
 | 0 | Scaffold, provider stub, executor + protocol fakes, provider config and shared CRUD harness | `main`, PRs #17, #19, #21, #22 |
 | 1 | Lane A `trino_catalog`; B `trino_schema`; C `trino_role`; D `trino_grant_role`; E `trino_grant_privileges`; F data sources and provider wiring | `internal/resources/*`, `internal/datasources/*`, PR #25 |
 | 2 | T10 wiring/docs/complete example; T11 acceptance, coverage gate, release dry-run; T13 version matrix; T12 whole-branch review | `internal/provider` registration, `docs/`, `examples/complete`, CI, `contributing/kerberos-acceptance.md` |
+| 3 | v0.2 control-plane surface: `trino_tables` data source, schema-wide `trino_table_privileges`, `trino_function` resource, view spike, verified non-goals | `internal/datasources/tables`, `internal/datasources/tableprivileges`, `internal/resources/function`, `contributing/view-spike.md`, README, spec |
 
 Lane ownership existed to keep parallel work conflict-free: each lane owned its
 resource package, tests and example, and no lane wrote `internal/provider`. In
