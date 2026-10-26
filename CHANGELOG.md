@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+- The version probe no longer caches a failed `SELECT version()`: a transport
+  error or coordinator blip is retried by the next caller instead of poisoning
+  every later call in the provider process. Concurrent callers share one probe.
+- Mutating statements are no longer retried at the HTTP layer. Trino DDL is not
+  idempotent, so a timed-out `CREATE`/`GRANT` that had already succeeded could
+  be re-sent and surface as `ALREADY_EXISTS`; Terraform's apply/refresh cycle is
+  the retry boundary instead. Read-only queries keep the driver's retries.
+- `providerdata.Data` no longer carries an unused `Version` field.
+
 ## [0.1.1] - 2026-10-25
 
 ### Fixed

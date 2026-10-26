@@ -273,7 +273,6 @@ func (p *TrinoProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	data := &providerdata.Data{
 		Executor: executor,
 		Timeout:  opts.QueryTimeout,
-		Version:  version,
 	}
 	resp.ResourceData = data
 	resp.DataSourceData = data

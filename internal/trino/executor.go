@@ -3,6 +3,7 @@ package trino
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,24 +18,40 @@ type Executor interface {
 	Query(ctx context.Context, statement string, args ...any) ([]Row, error)
 	// QueryOne returns the first row and false when the result is empty.
 	QueryOne(ctx context.Context, statement string, args ...any) (Row, bool, error)
-	// Version returns the cached server version, probing once.
+	// Version returns the cached server version. Only a successful probe is
+	// cached: a failed probe is retried by the next call.
 	Version(ctx context.Context) (string, error)
-	// Close releases the pool.
+	// Close releases the pools.
 	Close() error
 }
 
 var _ Executor = (*sqlExecutor)(nil)
 
+// sqlExecutor keeps two pools over the same coordinator. Mutating statements
+// go through execDB, whose connector has HTTP retries disabled, so a request
+// that succeeded server-side but timed out client-side is never re-sent.
+// Queries and the version probe go through db, which keeps the driver's
+// transient-failure retries.
 type sqlExecutor struct {
-	db *sql.DB
+	db     *sql.DB
+	execDB *sql.DB
 
-	versionOnce sync.Once
-	version     string
-	versionErr  error
+	versionMu    sync.Mutex
+	version      string
+	versionKnown bool
+	probe        *versionProbe
+}
+
+// versionProbe is one in-flight SELECT version(). Concurrent callers wait on
+// done instead of starting their own probe; the result is shared.
+type versionProbe struct {
+	done    chan struct{}
+	version string
+	err     error
 }
 
 func (e *sqlExecutor) Exec(ctx context.Context, statement string, args ...any) error {
-	_, err := e.db.ExecContext(ctx, statement, args...)
+	_, err := e.execDB.ExecContext(ctx, statement, args...)
 	return err
 }
 
@@ -86,26 +103,54 @@ func (e *sqlExecutor) QueryOne(ctx context.Context, statement string, args ...an
 }
 
 func (e *sqlExecutor) Version(ctx context.Context) (string, error) {
-	e.versionOnce.Do(func() {
-		row, ok, err := e.QueryOne(ctx, "SELECT version()")
-		if err != nil {
-			e.versionErr = err
-			return
+	e.versionMu.Lock()
+	if e.versionKnown {
+		version := e.version
+		e.versionMu.Unlock()
+		return version, nil
+	}
+	if probe := e.probe; probe != nil {
+		e.versionMu.Unlock()
+		select {
+		case <-probe.done:
+			return probe.version, probe.err
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
-		if !ok {
-			e.versionErr = fmt.Errorf("version probe returned no rows")
-			return
-		}
-		version, ok := row.SoleString()
-		if !ok {
-			e.versionErr = fmt.Errorf("version probe returned an unexpected shape")
-			return
-		}
-		e.version = version
-	})
-	return e.version, e.versionErr
+	}
+	probe := &versionProbe{done: make(chan struct{})}
+	e.probe = probe
+	e.versionMu.Unlock()
+
+	probe.version, probe.err = e.probeVersion(ctx)
+
+	e.versionMu.Lock()
+	if probe.err == nil {
+		e.version = probe.version
+		e.versionKnown = true
+	}
+	e.probe = nil
+	close(probe.done)
+	e.versionMu.Unlock()
+
+	return probe.version, probe.err
+}
+
+func (e *sqlExecutor) probeVersion(ctx context.Context) (string, error) {
+	row, ok, err := e.QueryOne(ctx, "SELECT version()")
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("version probe returned no rows")
+	}
+	version, ok := row.SoleString()
+	if !ok {
+		return "", fmt.Errorf("version probe returned an unexpected shape")
+	}
+	return version, nil
 }
 
 func (e *sqlExecutor) Close() error {
-	return e.db.Close()
+	return errors.Join(e.db.Close(), e.execDB.Close())
 }

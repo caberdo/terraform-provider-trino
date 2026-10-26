@@ -13,7 +13,6 @@ func TestFromProviderDataReturnsData(t *testing.T) {
 	want := &providerdata.Data{
 		Executor: &trinotest.FakeExecutor{ServerVersion: "484"},
 		Timeout:  5 * time.Minute,
-		Version:  "484",
 	}
 
 	got, diags := providerdata.FromProviderData(want)

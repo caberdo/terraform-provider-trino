@@ -56,8 +56,12 @@ func TestConfigureBuildsResourceData(t *testing.T) {
 	if data.Timeout != 90*time.Second {
 		t.Fatalf("Timeout = %s, want 90s", data.Timeout)
 	}
-	if data.Version != "484" {
-		t.Fatalf("Version = %q, want %q", data.Version, "484")
+	version, err := data.Executor.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if version != "484" {
+		t.Fatalf("Version = %q, want %q", version, "484")
 	}
 	if resp.DataSourceData != data {
 		t.Fatal("data sources did not receive the same provider data")

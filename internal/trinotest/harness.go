@@ -42,11 +42,7 @@ func Configure(t *testing.T, r resource.Resource, fake *FakeExecutor) {
 	if !ok {
 		t.Fatalf("%T does not implement resource.ResourceWithConfigure", r)
 	}
-	version := ""
-	if fake != nil {
-		version = fake.ServerVersion
-	}
-	data := &providerdata.Data{Executor: fake, Timeout: harnessTimeout, Version: version}
+	data := &providerdata.Data{Executor: fake, Timeout: harnessTimeout}
 	var resp resource.ConfigureResponse
 	configurable.Configure(Ctx(t), resource.ConfigureRequest{ProviderData: data}, &resp)
 	if resp.Diagnostics.HasError() {
