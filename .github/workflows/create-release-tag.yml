@@ -1,5 +1,14 @@
 # Creates a release tag and publishes the release.
 #
+# Two entry points share this workflow:
+#
+# - A push to `main` that changes `VERSION`. This is how merging the release pull
+#   request ships the version it prepared: the file is the trigger, so a merge
+#   that leaves it alone never releases.
+# - A `workflow_dispatch`, kept for the cases the merge cannot cover: the first
+#   tag of a new line, a re-tag after a failure that happened before the tag was
+#   pushed, and a maintainer who needs to choose the version explicitly.
+#
 # The tag is GPG-signed with the key in the `GPG_PRIVATE_KEY` secret. GitHub only
 # shows the tag as "Verified" when the signature can be checked against a key
 # registered to the account that owns the tagger email, so the git identity is
@@ -10,17 +19,21 @@
 # than relying on the `push: tags: v*` trigger in release.yml. That trigger is
 # still needed for signed tags pushed from a developer machine.
 #
-# If a release fails after the tag was pushed, do not re-run this workflow: it
-# would calculate the next version instead of the one that failed. Dispatch the
+# If a release fails after the tag was pushed, do not expect this workflow to
+# republish it: it skips an existing tag and only creates new ones. Dispatch the
 # Release workflow manually instead, with `tag` set to the tag to republish;
 # goreleaser runs with `release.mode: replace`, so that is idempotent.
 name: Create Release Tag
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (leave empty to auto-calculate from release_type)"
+        description: "Version to release (leave empty to auto-calculate from release_type; a push to main always uses VERSION)"
         required: false
         type: string
         default: ""
@@ -37,6 +50,12 @@ on:
 permissions:
   contents: read
 
+# Only `VERSION` changes start a release, but a manual dispatch can race a merge.
+# Serialise them instead of cancelling, so a half-created tag is never abandoned.
+concurrency:
+  group: create-release-tag
+  cancel-in-progress: false
+
 jobs:
   create-tag:
     runs-on: ubuntu-latest
@@ -44,54 +63,106 @@ jobs:
       contents: write
     timeout-minutes: 5
     outputs:
-      tag: ${{ steps.version.outputs.new }}
+      tag: ${{ steps.tagcheck.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Get latest version and calculate next
+      - name: Resolve the version
         id: version
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          DISPATCH_TYPE: ${{ github.event.inputs.release_type }}
         run: |
+          set -euo pipefail
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "Latest tag: $LATEST_TAG"
           LATEST_VERSION=${LATEST_TAG#v}
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-          MANUAL_VERSION="${{ github.event.inputs.version }}"
 
-          if [[ -n "$MANUAL_VERSION" ]]; then
-            if [[ ! "$MANUAL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Error: Version must be in format X.Y.Z"
-              exit 1
-            fi
-            NEW_VERSION="$MANUAL_VERSION"
-            echo "Using manual version: $NEW_VERSION"
+          if [[ -n "$DISPATCH_VERSION" ]]; then
+            NEW_VERSION="$DISPATCH_VERSION"
+            SOURCE="the workflow_dispatch version input"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            # The push trigger only fires for a VERSION change, so the file is
+            # the version the merged release pull request prepared.
+            NEW_VERSION=$(tr -d '[:space:]' < VERSION)
+            SOURCE="VERSION"
           else
-            RELEASE_TYPE="${{ github.event.inputs.release_type }}"
-            case "$RELEASE_TYPE" in
+            case "$DISPATCH_TYPE" in
               major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
               minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
               patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+              *)
+                echo "Error: unknown release_type '$DISPATCH_TYPE'" >&2
+                exit 1
+                ;;
             esac
-            echo "Calculated $RELEASE_TYPE version: $NEW_VERSION"
+            SOURCE="a $DISPATCH_TYPE bump of $LATEST_TAG"
           fi
 
-          echo "latest=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-          echo "new=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "VERSION=v$NEW_VERSION" >> "$GITHUB_ENV"
+          if [[ ! "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: the version from $SOURCE is '$NEW_VERSION'; expected X.Y.Z without a leading v" >&2
+            exit 1
+          fi
 
-      - name: Check tag doesn't exist
+          {
+            echo "latest=$LATEST_TAG"
+            echo "version=$NEW_VERSION"
+            echo "tag=v$NEW_VERSION"
+            echo "source=$SOURCE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved $NEW_VERSION from $SOURCE"
+
+      # A re-run of this workflow, or a manual dispatch for an already released
+      # version, must not fail: an existing tag on the same commit means the
+      # release already happened. A tag on another commit means the version was
+      # reused, which is an error because a published tag must not move.
+      - name: Check the tag does not exist yet
+        id: tagcheck
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if git rev-parse "${{ env.VERSION }}" >/dev/null 2>&1; then
-            echo "Error: tag ${{ env.VERSION }} already exists"
-            echo "To publish (or republish) that tag without touching it, dispatch the"
-            echo "Release workflow manually with inputs.tag set to ${{ env.VERSION }}."
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            EXISTING=$(git rev-parse "${TAG}^{commit}")
+            if [[ "$EXISTING" == "$GITHUB_SHA" ]]; then
+              echo "Tag $TAG already points at $GITHUB_SHA; nothing to create."
+              {
+                echo "tag="
+                echo "skip=true"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Error: tag $TAG already exists on $EXISTING, not on $GITHUB_SHA." >&2
+            echo "Change VERSION to release a new version, or republish $TAG with" >&2
+            echo "the Release workflow." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "skip=false"
+          } >> "$GITHUB_OUTPUT"
+
+      # The changelog is the only place a release is documented. Refuse to ship
+      # a version nobody wrote down, rather than publishing an undocumented one.
+      - name: Check the changelog documents the version
+        if: steps.tagcheck.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! grep -Eq "^## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md has no dated '## [$VERSION]' section." >&2
+            echo "Cut the Unreleased entries into that section before releasing." >&2
             exit 1
           fi
 
       - name: Import GPG key
         id: import_gpg
+        if: steps.tagcheck.outputs.skip != 'true'
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -100,22 +171,40 @@ jobs:
           git_tag_gpgsign: true
 
       - name: Create and push signed tag
+        if: steps.tagcheck.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           # GitHub maps the tagger email to an account and looks the signature up
           # in that account's registered keys, so use the signing key identity.
           git config user.name "${{ steps.import_gpg.outputs.name }}"
           git config user.email "${{ steps.import_gpg.outputs.email }}"
-          git tag -s "${{ env.VERSION }}" -m "Release ${{ env.VERSION }}"
-          git tag -v "${{ env.VERSION }}"
-          git push origin "${{ env.VERSION }}"
+          git tag -s "$TAG" -m "Release $TAG"
+          git tag -v "$TAG"
+          git push origin "$TAG"
 
       - name: Summary
+        env:
+          TAG: ${{ steps.tagcheck.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          LATEST: ${{ steps.version.outputs.latest }}
+          SOURCE: ${{ steps.version.outputs.source }}
         run: |
+          if [[ -z "$TAG" ]]; then
+            {
+              echo "## Release tag already exists"
+              echo ""
+              echo "Tag **v$VERSION** already points at \`$GITHUB_SHA\`, so this run created and published nothing."
+              echo "To republish its assets, dispatch the **Release** workflow with \`tag=v$VERSION\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           {
             echo "## Release Tag Created"
-            echo "| Previous | **${{ steps.version.outputs.latest }}** |"
-            echo "| New Tag  | **${{ steps.version.outputs.new }}** |"
-            echo "| Commit   | **${{ github.sha }}** |"
+            echo "| Previous | **$LATEST** |"
+            echo "| New Tag  | **$TAG** |"
+            echo "| Version from | $SOURCE |"
+            echo "| Commit   | **$GITHUB_SHA** |"
             echo "| Signed by | **${{ steps.import_gpg.outputs.fingerprint }}** |"
             echo ""
             echo "The release workflow is invoked next to build and publish the provider."
@@ -123,6 +212,9 @@ jobs:
 
   release:
     needs: create-tag
+    # A skipped tag (already released) leaves the output empty, so nothing is
+    # published twice.
+    if: needs.create-tag.outputs.tag != ''
     # A reusable workflow can only use the permissions the calling job grants,
     # so the release job passes on the two scopes it attests with on top of
     # `contents: write`: `id-token` for the OIDC identity and `attestations` for

@@ -135,6 +135,12 @@ jobs:
           REQUIRE_TERRAFORM: "1"
         run: ./scripts/validate-examples.sh
 
+      # A release pull request is the only change that moves VERSION. Catch a
+      # mismatch with CHANGELOG.md or the README install constraint here instead
+      # of after the merge, where it would fail the tag workflow on main.
+      - name: Check release metadata
+        run: ./scripts/release-check.sh
+
       - name: Check generated docs are up to date
         run: |
           go generate ./...

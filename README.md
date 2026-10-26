@@ -9,9 +9,7 @@ owns no truth of its own: every read is a SQL query, every mutation is a DDL
 statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
-> **Status:** v0.1.x released. The v0.2 line adds `trino_function`,
-> `trino_materialized_view`, `trino_view`, the `trino_tables` data source and
-> schema-wide privilege listing; the eight resources and five data sources are
+> **Status:** v0.2.0 released. The eight resources and five data sources are
 > implemented, documented and covered by unit, protocol and Docker acceptance
 > tests.
 
@@ -34,7 +32,7 @@ terraform {
   required_providers {
     trino = {
       source  = "caberdo/trino"
-      version = "~> 0.1"
+      version = "~> 0.2"
     }
   }
 }
@@ -270,7 +268,7 @@ while the matrix records what each `Read` can detect.
 | A `trino_grant_role` revoked out of band still shows `No changes. Your infrastructure matches the configuration.` | Trino cannot list another principal's role grants, so the resource is state-authoritative by design. | Re-apply the grant, or `terraform state rm` the resource and import it again with `catalog.role:USER:grantee`. |
 | `Error: Password requires TLS` with `Basic auth sends the password to the server, so the endpoint must use https.` | `auth = "basic"` is combined with an `http://` endpoint. | Use an `https://` endpoint (with `ca_cert_file` or `insecure_skip_verify` if needed), or `auth = "none"` for a coordinator without authentication. |
 | `SHOW ROLES FROM hive` reports `analyst` for a role configured as `Analyst`, while `terraform plan` stays clean | Hive normalises role names to lowercase; the provider matches them case-insensitively and keeps the configured spelling in state. | Use lowercase role names. Do not rewrite state to the server spelling. |
-| `Error: Failed to query available provider packages` with either `provider registry.terraform.io/caberdo/trino was not found in any of the search locations` or `no available releases match the given constraints ~> 0.1` | `make install` names the plugin directory after `git describe`, for example `v0.1.1-4-gd1d6e16`, which is not a release version Terraform's filesystem discovery accepts. | Install with an explicit version (`make install VERSION=0.1.2`) or use a `dev_overrides` block, which ignores version constraints. |
+| `Error: Failed to query available provider packages` with either `provider registry.terraform.io/caberdo/trino was not found in any of the search locations` or `no available releases match the given constraints ~> 0.2` | `make install` names the plugin directory after `git describe`, for example `v0.1.1-4-gd1d6e16`, which is not a release version Terraform's filesystem discovery accepts. | Install with an explicit version (`make install VERSION=0.2.0`) or use a `dev_overrides` block, which ignores version constraints. |
 
 The error classification behind these diagnostics is described in
 [Architecture → Error taxonomy](ARCHITECTURE.md#error-taxonomy).
@@ -327,6 +325,7 @@ the `GNUmakefile` targets:
 | `make testacc-matrix` | Acceptance tests against every version in `.github/trino-versions.txt`. |
 | `make validate-examples` | `terraform fmt`/`validate` every example. |
 | `make generate` | Regenerate `docs/` with `tfplugindocs`. |
+| `make release-check` | Fail when `VERSION`, `CHANGELOG.md` and the README install constraint disagree. |
 
 Acceptance tests need Docker Compose (Podman works too: `COMPOSE=podman-compose`).
 The compose environment runs three catalogs: `memory`, `hive` (file metastore)

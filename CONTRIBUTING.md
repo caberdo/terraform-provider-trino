@@ -189,9 +189,14 @@ added, raise it to `1` and set `require_code_owner_review: true` in
 
 ## Releasing
 
-Maintainers ship a release with two workflow dispatches: `Create Release Tag`
-with an explicit `version`, then (if needed) `Release` with the existing tag.
-The full path, including verification and recovery, is in
+A release is a pull request that moves `VERSION`, cuts the `CHANGELOG.md`
+`Unreleased` section and updates the README install constraint. Merging it
+starts the `Create Release Tag` workflow, which signs the tag and calls
+`Release`; a merge that leaves `VERSION` alone never releases.
+
+The manual `Create Release Tag` dispatch remains for the cases the merge cannot
+cover, and `Release` with an existing tag republishes a failed one. The full
+path, including verification and recovery, is in
 [`contributing/releasing.md`](contributing/releasing.md). Do not re-run
 `Create Release Tag` to recover a failed publish.
 
