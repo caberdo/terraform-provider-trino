@@ -41,6 +41,7 @@ func TestProviderRegistersAllTypes(t *testing.T) {
 		"trino_grant_privileges",
 		"trino_function",
 		"trino_materialized_view",
+		"trino_view",
 	}
 	if len(resourceNames) != len(wantResources) {
 		t.Fatalf("Resources() returned %d types, want %d: %v", len(resourceNames), len(wantResources), resourceNames)

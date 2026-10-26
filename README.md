@@ -2,7 +2,7 @@
 
 A Terraform provider for the [Trino](https://trino.io/) control plane: catalogs,
 schemas, catalog roles, role grants, table privilege grants, catalog user-defined
-functions and materialized views, managed through SQL DDL.
+functions, views and materialized views, managed through SQL DDL.
 
 The provider is a thin translation layer between Terraform state and Trino. It
 owns no truth of its own: every read is a SQL query, every mutation is a DDL
@@ -10,9 +10,10 @@ statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
 > **Status:** v0.1.x released. The v0.2 line adds `trino_function`,
-> `trino_materialized_view`, the `trino_tables` data source and schema-wide
-> privilege listing; the seven resources and five data sources are implemented,
-> documented and covered by unit, protocol and Docker acceptance tests.
+> `trino_materialized_view`, `trino_view`, the `trino_tables` data source and
+> schema-wide privilege listing; the eight resources and five data sources are
+> implemented, documented and covered by unit, protocol and Docker acceptance
+> tests.
 
 ## Requirements
 
@@ -138,6 +139,7 @@ for a reproducible KDC and Trino setup.
 | [`trino_grant_role`](docs/resources/grant_role.md) | `GRANT/REVOKE` a role to a principal | `catalog.role:grantee_type:grantee` |
 | [`trino_grant_privileges`](docs/resources/grant_privileges.md) | `GRANT/REVOKE` table privileges | `catalog.schema.table:grantee_type:grantee` |
 | [`trino_function`](docs/resources/function.md) | `CREATE/DROP FUNCTION` catalog UDFs (SQL routines) | `catalog.schema.name` |
+| [`trino_view`](docs/resources/view.md) | `CREATE/DROP VIEW`, `CREATE OR REPLACE VIEW` for definition and security changes | `catalog.schema.name` |
 | [`trino_materialized_view`](docs/resources/materialized_view.md) | `CREATE/DROP MATERIALIZED VIEW`, explicit `REFRESH MATERIALIZED VIEW` | `catalog.schema.name` |
 
 ## Data sources
@@ -164,6 +166,7 @@ while the matrix records what each `Read` can detect.
 | `trino_grant_role` | None | None | **Not detected** (state-authoritative) |
 | `trino_grant_privileges` | `information_schema.table_privileges` | Privileges and grant option | Detected |
 | `trino_function` | `SHOW FUNCTIONS` | Definition compared token by token from `SHOW CREATE FUNCTION` | Function dropped → detected |
+| `trino_view` | `information_schema.tables` (`table_type = 'VIEW'`) | `security` parsed from `SHOW CREATE VIEW`; `definition` is write-only because Trino normalises it and Hive keeps a stale definition after a column rename | View dropped → detected |
 | `trino_materialized_view` | `system.metadata.materialized_views` | `properties` for configured keys from `SHOW CREATE MATERIALIZED VIEW` (derived keys ignored); `query` and `grace_period` are write-only because Trino stores a normalised query and the 476 read path omits the grace period | View dropped → detected; `Read` never refreshes |
 
 ## Known limitations
@@ -218,10 +221,21 @@ while the matrix records what each `Read` can detect.
 - **Schema-wide privilege visibility follows authorization.** Omitting `table`
   on `trino_table_privileges` returns every grant the provider user can see in
   the schema. Use an admin identity for a complete picture.
-- **No view resource.** `trino_tables` lists views, but the provider does not
-  manage them. Views are deferred because Hive can keep a stale stored
-  definition after a column rename (see the
+- **`trino_view.definition` is write-only.** Trino stores a normalised
+  definition, and Hive keeps a stale one after an underlying column is renamed
+  or dropped. A text comparison would either produce a permanent diff or report
+  no drift for a broken view, so `Read` preserves the configured text and
+  detects only existence and the `security` mode. Renaming or dropping a
+  referenced column can therefore invalidate a Hive view without a plan (see the
   [spike findings](contributing/view-spike.md)).
+- **Views need a connector that implements them.** `trino_view` runs its full
+  lifecycle on the Hive and Memory connectors, which the acceptance suite
+  exercises. Hive views require `hive.security=sql-standard` and the `admin`
+  role.
+- **Importing a view leaves `definition` to configuration.** `SHOW CREATE VIEW`
+  returns a normalised statement and cannot recover the configured text, so an
+  import fills the identity and `security` and the next apply runs
+  `CREATE OR REPLACE VIEW` with the configured `definition`.
 - **Materialized views need a connector that stores them.** `trino_materialized_view`
   works on Iceberg catalogs backed by a Hive metastore. The Iceberg REST
   catalog rejects `CREATE MATERIALIZED VIEW`, and the acceptance matrix runs the
@@ -271,6 +285,7 @@ The error classification behind these diagnostics is described in
 | `trino_grant_role` | `WITH ADMIN OPTION` on the role being granted. |
 | `trino_grant_privileges` | Ownership or admin rights on the table, and `GRANT OPTION` to delegate it. |
 | `trino_function` | `CREATE FUNCTION` / `DROP FUNCTION` on the catalog and schema, and a connector that implements catalog UDF storage. |
+| `trino_view` | `CREATE VIEW` / `DROP VIEW` on the schema. Hive views additionally require `hive.security=sql-standard` and the `admin` role. |
 | `trino_materialized_view` | `CREATE MATERIALIZED VIEW`, `DROP MATERIALIZED VIEW` and `REFRESH MATERIALIZED VIEW` on the schema, and a connector that implements materialized-view storage. |
 
 ## Version policy
@@ -358,8 +373,8 @@ These entries are the public record for the corresponding design non-goals.
   publish, verification and recovery path.
 - [Security](SECURITY.md) — supported versions, threat model and reporting.
 - [Changelog](CHANGELOG.md).
-- [View spike findings](contributing/view-spike.md) — why `trino_view` is not
-  shipped yet and what a future implementation may claim.
+- [View spike findings](contributing/view-spike.md) — the read-back evidence
+  behind `trino_view` and the limitation it accepts.
 - [Generated provider docs](docs/index.md).
 
 ## Licence

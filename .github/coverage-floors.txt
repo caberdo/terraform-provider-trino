@@ -27,6 +27,7 @@ internal/resources/grantrole 66
 internal/resources/materializedview 85
 internal/resources/role 68
 internal/resources/schema 82
+internal/resources/view 87
 internal/resourceutil 95
 internal/trino 87
 internal/trinotest 85

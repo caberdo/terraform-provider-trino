@@ -17,7 +17,7 @@ main.go ── providerserver.Serve ──► internal/provider
           internal/resources/*                       internal/datasources/*
           catalog, schema, role,                     catalogs, schemas, roles,
           grantrole, grantprivileges, function,      tableprivileges, tables
-          materializedview
+          view, materializedview
                     │                                          │
                     └──────────────► internal/trino ◄───────────┘
                                      Executor (database/sql)
@@ -69,6 +69,18 @@ results and retries. The provider owns the lifecycle around it:
   around `RETURN` expressions) does not create a perpetual diff. `DROP
   FUNCTION` needs the parameter types, which the provider parses from the
   definition.
+- **Views** are DDL over a raw SELECT body. `trino_view` quotes the catalog,
+  schema and view name, then appends the configured `definition` after `AS`.
+  Existence comes from `information_schema.tables` (`table_type = 'VIEW'`)
+  compared case-insensitively, because Hive stores names lowercased and a
+  quoted `SHOW CREATE VIEW` rejects a non-lowercase spelling; the lookup also
+  returns the stored spelling that the subsequent `SHOW CREATE VIEW` uses. That
+  statement supplies the one drifted attribute, its `SECURITY` clause. The
+  definition itself is write-only, because Trino returns a normalised form and
+  Hive keeps a stale definition after an underlying column rename, so a text
+  comparison would either be a perpetual diff or a false "no drift".
+  Definition and security changes both run `CREATE OR REPLACE VIEW`; Trino has
+  no `ALTER VIEW` for either.
 - **Materialized views** keep `trino_materialized_view` honest about a
   connector-specific object. Existence comes from
   `system.metadata.materialized_views`; `SHOW CREATE MATERIALIZED VIEW` supplies
