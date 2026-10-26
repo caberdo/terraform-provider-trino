@@ -296,3 +296,41 @@ func TestExecutorVersionIsCached(t *testing.T) {
 		t.Errorf("got %d requests, want the probe to run once", len(requests))
 	}
 }
+
+func TestStatementServerRoutesPagesByStatement(t *testing.T) {
+	columns := []trinotest.Column{{Name: "n", Type: "bigint"}}
+	server := trinotest.NewStatementServer(t, func(statement string) []trinotest.Page {
+		if strings.HasPrefix(statement, "SELECT") {
+			return []trinotest.Page{
+				{Columns: columns, Rows: [][]any{{int64(1)}}},
+				{Columns: columns, Rows: [][]any{{int64(2)}}},
+			}
+		}
+		return []trinotest.Page{{Error: &trinotest.ProtoError{
+			Message:   "Dynamic catalog management is not enabled",
+			ErrorName: "NOT_SUPPORTED",
+			ErrorType: "USER_ERROR",
+			SqlState:  "0A000",
+		}}}
+	})
+	executor := openFake(t, server, trino.Options{})
+
+	rows, err := executor.Query(context.Background(), "SELECT 1")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want both pages", len(rows))
+	}
+	if second, _ := rows[1].Int64("n"); second != 2 {
+		t.Fatalf("second page row = %d, want 2", second)
+	}
+
+	err = executor.Exec(context.Background(), "CREATE CATALOG lakehouse USING memory")
+	if err == nil {
+		t.Fatal("Exec served the SELECT page; want the error page")
+	}
+	if !trino.IsErrorName(err, "NOT_SUPPORTED") {
+		t.Fatalf("Exec error = %v, want NOT_SUPPORTED", err)
+	}
+}

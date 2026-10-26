@@ -56,22 +56,44 @@ type Failure struct {
 // only an id and a nextUri; every Page is served by a follow-up GET, which is
 // how the real coordinator hands out rows.
 type FakeServer struct {
-	t        *testing.T
-	server   *httptest.Server
-	pages    []Page
-	mu       sync.Mutex
-	cond     *sync.Cond
-	calls    []Request
-	failures []Failure
-	block    chan struct{}
-	queryID  int
+	t            *testing.T
+	server       *httptest.Server
+	pages        []Page
+	pagesFor     func(statement string) []Page
+	pagesByQuery map[string][]Page
+	mu           sync.Mutex
+	cond         *sync.Cond
+	calls        []Request
+	failures     []Failure
+	block        chan struct{}
+	queryID      int
 }
 
 // NewFakeServer starts a server that serves pages in order. It closes itself
 // when the test finishes.
 func NewFakeServer(t *testing.T, pages ...Page) *FakeServer {
 	t.Helper()
-	fake := &FakeServer{t: t, pages: pages}
+	return newFakeServer(t, nil, pages)
+}
+
+// NewStatementServer starts a server that chooses the pages for each statement
+// from the SQL text in its POST body. Use it when a test drives more than one
+// statement, such as a resource that checks existence and then creates.
+// Return []Page{{}} for a statement that succeeds without rows; returning nil
+// pages serves no page and the client sees an HTTP 404.
+func NewStatementServer(t *testing.T, pagesFor func(statement string) []Page) *FakeServer {
+	t.Helper()
+	return newFakeServer(t, pagesFor, nil)
+}
+
+func newFakeServer(t *testing.T, pagesFor func(statement string) []Page, pages []Page) *FakeServer {
+	t.Helper()
+	fake := &FakeServer{
+		t:            t,
+		pages:        pages,
+		pagesFor:     pagesFor,
+		pagesByQuery: make(map[string][]Page),
+	}
 	fake.cond = sync.NewCond(&fake.mu)
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
@@ -153,9 +175,14 @@ func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/statement":
+		pages := s.pages
+		if s.pagesFor != nil {
+			pages = s.pagesFor(string(body))
+		}
 		s.mu.Lock()
 		s.queryID++
 		id := fmt.Sprintf("query-%d", s.queryID)
+		s.pagesByQuery[id] = pages
 		s.mu.Unlock()
 		s.writeJSON(w, map[string]any{
 			"id":      id,
@@ -195,12 +222,20 @@ func (s *FakeServer) injectFailure(w http.ResponseWriter, r *http.Request, failu
 }
 
 func (s *FakeServer) servePage(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/v1/statement/")
+	s.mu.Lock()
+	pages := s.pages
+	if s.pagesFor != nil {
+		pages = s.pagesByQuery[id]
+	}
+	s.mu.Unlock()
+
 	index, err := strconv.Atoi(r.URL.Query().Get("page"))
-	if err != nil || index < 0 || index >= len(s.pages) {
+	if err != nil || index < 0 || index >= len(pages) {
 		http.Error(w, "no such page", http.StatusNotFound)
 		return
 	}
-	page := s.pages[index]
+	page := pages[index]
 	if page.Delay > 0 {
 		select {
 		case <-time.After(page.Delay):
@@ -209,7 +244,6 @@ func (s *FakeServer) servePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	id := strings.TrimPrefix(r.URL.Path, "/v1/statement/")
 	response := map[string]any{
 		"id":    id,
 		"stats": map[string]any{"state": "RUNNING"},
@@ -236,7 +270,7 @@ func (s *FakeServer) servePage(w http.ResponseWriter, r *http.Request) {
 			"sqlState":  page.Error.SqlState,
 		}
 	}
-	if index+1 < len(s.pages) {
+	if index+1 < len(pages) {
 		response["nextUri"] = fmt.Sprintf("%s/v1/statement/%s?page=%d", s.URL(), id, index+1)
 	}
 	s.writeJSON(w, response)

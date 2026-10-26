@@ -56,6 +56,16 @@ testacc:
 testacc-docker:
 	TRINO_VERSION=$(TRINO_VERSION) $(COMPOSE) run --rm test
 
+# Fuzz the untrusted-input parsers for a short, fixed time each. Fuzzing can
+# only target one package and one target per invocation. CI runs the committed
+# seed corpora (go test ./internal/... -run '^Fuzz'), which is bounded; this
+# target explores new inputs. Override FUZZTIME for a longer run.
+FUZZTIME ?= 10s
+fuzz:
+	go test ./internal/trino -fuzz '^FuzzQuoteIdentifier$$' -fuzztime=$(FUZZTIME)
+	go test ./internal/trino -fuzz '^FuzzQuoteLiteral$$' -fuzztime=$(FUZZTIME)
+	go test ./internal/resources/schema -fuzz '^FuzzParseShowCreateSchema$$' -fuzztime=$(FUZZTIME)
+
 # Run the docker-based acceptance suite against every supported Trino version.
 # Each version runs and tears down independently so one failure still lets the
 # others run; the overall exit status is non-zero if any version failed.
@@ -100,4 +110,4 @@ validate-examples:
 generate:
 	go generate ./...
 
-.PHONY: default build test coverage coverage-html coverage-merge coverage-readme coverage-readme-check coverage-gate testacc testacc-docker testacc-matrix lint lint-fix fmt vet install validate-examples generate
+.PHONY: default build test coverage coverage-html coverage-merge coverage-readme coverage-readme-check coverage-gate testacc testacc-docker testacc-matrix fuzz lint lint-fix fmt vet install validate-examples generate

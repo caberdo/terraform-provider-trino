@@ -38,6 +38,20 @@ jobs:
           version: v2.13.2
           args: --config .golangci.yml
 
+      # Dependency vulnerabilities are invisible to gosec and CodeQL, which
+      # only read first-party code. The version is pinned here (no @latest) and
+      # documented in CONTRIBUTING.md; update it deliberately, with the go.mod
+      # toolchain it was tested against.
+      - name: Install govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # scripts/govulncheck.sh fails only on findings that affect called code
+      # and reads accepted findings from .github/govulncheck-accepted.txt.
+      - name: Run govulncheck
+        run: ./scripts/govulncheck.sh
+
       - name: Run Gosec Security Scanner
         id: gosec
         uses: securego/gosec@5eb1d104ef85ff2c905c877eb600e8c1dee33a22 # v2.30.0
@@ -118,6 +132,11 @@ jobs:
 
       - name: Run tests
         run: go test -v -race -covermode=atomic -coverprofile=coverage.out ./internal/...
+
+      # Run the committed fuzz seed corpora without exploring new inputs, so
+      # the job stays bounded and deterministic. `make fuzz` explores locally.
+      - name: Run fuzz seeds
+        run: go test ./internal/... -run '^Fuzz'
 
       - name: Coverage summary
         if: always()

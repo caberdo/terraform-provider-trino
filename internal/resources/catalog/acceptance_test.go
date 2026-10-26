@@ -31,10 +31,12 @@ func TestAccCatalogResource_basic(t *testing.T) {
 				),
 			},
 			{
+				// Layer: real coordinator. Import must report why it is
+				// refused, not silently adopt (or recreate) the live catalog.
 				ResourceName:      "trino_catalog.test",
 				ImportState:       true,
 				ImportStateVerify: false,
-				ExpectError:       regexp.MustCompile(`(?i)import.*not supported`),
+				ExpectError:       regexp.MustCompile(`(?is)import\s+is\s+not\s+supported\s+for\s+trino_catalog.*drop\s+and\s+recreate\s+the\s+live\s+catalog`),
 			},
 		},
 	})

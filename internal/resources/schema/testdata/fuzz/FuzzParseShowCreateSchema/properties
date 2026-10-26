@@ -1,0 +1,2 @@
+go test fuzz v1
+string("CREATE SCHEMA hive AUTHORIZATION ROLE admin WITH (\"location\" = 'local:///tmp/hive')")

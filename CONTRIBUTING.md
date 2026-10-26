@@ -31,6 +31,8 @@ make lint
 make vet
 make validate-examples
 make generate
+make coverage
+make coverage-gate
 ```
 
 ## Acceptance tests and the version matrix
@@ -53,6 +55,55 @@ on the first line, then the last five stable releases, ascending, one per line.
   change.
 - `.github/workflows/version-freshness.yml` opens one issue labelled
   `version-matrix` when the window drifts; it never edits the file.
+
+## Coverage floors
+
+`scripts/coverage-gate.sh` enforces two things on the unit profile
+(`coverage.out`):
+
+- the module total against `.github/coverage-baseline.txt`, which the README
+  badge tracks;
+- every package returned by `go list ./internal/...` against its entry in
+  `.github/coverage-floors.txt`, or that file's `default` floor.
+
+The package list is discovered, so a new `internal/resources/*` or
+`internal/datasources/*` package is gated the moment it exists; a package with
+no tests measures 0% and fails. The gate prints every package it checked and
+names each one below its floor with the delta.
+
+To **raise** a floor: improve coverage, run `make coverage`, then edit the
+package's line. To **lower** one: do it in the same pull request as the change
+that dropped coverage and explain why in the pull request. Lowering a floor
+without that justification is a review finding. `make coverage-gate` checks the
+current `coverage.out`.
+
+## Fuzzing
+
+Three fuzz targets cover the parsers that consume untrusted input:
+
+- `FuzzQuoteIdentifier` and `FuzzQuoteLiteral` in `internal/trino`;
+- `FuzzParseShowCreateSchema` in `internal/resources/schema`.
+
+Seeds are committed under `testdata/fuzz/<Target>` next to the code and run
+with the normal test suite. CI runs only the seeds
+(`go test ./internal/... -run '^Fuzz'`) so the job stays bounded. `make fuzz`
+explores new inputs for `FUZZTIME` (default `10s`) per target. A crash is
+written under `testdata/fuzz/<Target>`; commit it with the fix as a regression
+seed.
+
+## Dependency vulnerabilities
+
+`Lint & Security` runs `govulncheck ./...` through `scripts/govulncheck.sh`.
+Only findings that affect called code fail the job; module-level findings the
+provider does not call are reported by the tool and do not block.
+
+- The tool version is pinned in `.github/workflows/test.yml`
+  (`golang.org/x/vuln/cmd/govulncheck@v1.9.0`); bump it deliberately together
+  with the `go` directive it was tested against.
+- Fix a finding by upgrading the dependency or the Go toolchain in `go.mod`.
+- If a reachable finding cannot be fixed yet, add its OSV ID and a reason to
+  `.github/govulncheck-accepted.txt`. The gate prints accepted entries and warns
+  when one no longer matches, so remove stale entries.
 
 ## Pull requests
 

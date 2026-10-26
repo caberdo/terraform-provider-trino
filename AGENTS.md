@@ -63,7 +63,7 @@ with the code they cover.
 | `make generate` | regenerate `docs/` with `tfplugindocs` |
 | `make testacc-docker` | acceptance suite against Trino in Docker |
 | `make testacc-matrix` | acceptance suite against every supported Trino version |
-| `make coverage-gate` | fail below `.github/coverage-baseline.txt` |
+| `make coverage-gate` | fail below the global floor in `.github/coverage-baseline.txt` or a package floor in `.github/coverage-floors.txt` |
 | `make coverage-readme-check` | fail when the README coverage badge drifts |
 
 ## Rules
@@ -77,10 +77,11 @@ with the code they cover.
 - No secret in a diagnostic, log field, test failure message or committed file.
 - Docs under `docs/` are generated. Never hand-edit them.
 - Coverage must be checked before claiming work is done, and it must never drop
-  below the floor in `.github/coverage-baseline.txt`. Run `make test` (and the
-  acceptance suite where relevant) and confirm `scripts/coverage-gate.sh` passes
-  before opening or merging a pull request; if a change adds uncovered code,
-  add tests or lower the floor deliberately in the same change.
+  below the global floor in `.github/coverage-baseline.txt` or a package floor
+  in `.github/coverage-floors.txt`. Run `make coverage` (and the acceptance
+  suite where relevant) and confirm `./scripts/coverage-gate.sh` passes before
+  opening or merging a pull request; if a change adds uncovered code, add tests
+  or lower the floor deliberately in the same change.
 - Read-back behaviour must match the spec's matrix. Never silently zero an
   unreadable attribute; preserve state.
 
