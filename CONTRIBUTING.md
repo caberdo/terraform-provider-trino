@@ -133,11 +133,14 @@ branch and a pull request. The ruleset requires:
 - All review threads resolved.
 - No bypass actors. There is deliberately no fast path around the gate.
 
-Merge through the merge queue (`gh pr merge --squash --auto`, or the merge
-button once both checks are green). The queue builds the prospective merge
-commit and runs the same `pull_request` workflows on the `merge_group` event,
-so stacked PRs are tested against the latest `main` without every lane
-rebasing.
+Merge through the merge queue once both checks are green. Repository-level
+auto-merge is disabled, so `gh pr merge --auto` fails with
+`Auto merge is not allowed for this repository`; enqueue the pull request with
+the GraphQL `enqueuePullRequest` mutation described in
+[`contributing/releasing.md`](contributing/releasing.md#2-merge-through-the-queue).
+The queue builds the prospective merge commit and runs the same `pull_request`
+workflows on the `merge_group` event, so stacked PRs are tested against the
+latest `main` without every lane rebasing.
 
 ### Required checks and rename hazard
 
@@ -176,6 +179,14 @@ the documented path; do not add a bypass actor for convenience.
 self-approval and there is one maintainer today. When a second maintainer is
 added, raise it to `1` and set `require_code_owner_review: true` in
 `scripts/setup-branch-protection.sh` in the same change.
+
+## Releasing
+
+Maintainers ship a release with two workflow dispatches: `Create Release Tag`
+with an explicit `version`, then (if needed) `Release` with the existing tag.
+The full path, including verification and recovery, is in
+[`contributing/releasing.md`](contributing/releasing.md). Do not re-run
+`Create Release Tag` to recover a failed publish.
 
 ## Commits
 

@@ -20,6 +20,8 @@ actionable diagnostic or documented as a known limitation.
   [`.github/trino-versions.txt`](.github/trino-versions.txt) on `main`; a pull
   request runs the declared floor (476) and the newest release. 476 is the
   minimum supported server.
+- Go 1.27.x to build from source (the version in [`go.mod`](go.mod)).
+  Installing a published release needs neither Go nor the source tree.
 
 ## Installation
 
@@ -37,7 +39,8 @@ terraform {
 ```
 
 To build from source or test unreleased changes, install a local build and
-point Terraform at it with a `dev_overrides` block (or `make install`). See
+point Terraform at it with a `dev_overrides` block (or install a release-shaped
+plugin directory with `make install VERSION=<version>`). See
 [`examples/complete/main.tf`](examples/complete/main.tf) for a full module.
 
 ## Quick start
@@ -190,6 +193,21 @@ the contract and is reproduced in the generated resource pages.
   `roles = { hive = "admin" }` (C17). The file metastore auto-grants `admin` to
   `admin`/`hive`/`hdfs`, which is how a fresh environment bootstraps.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Error: Operation not supported` with `Dynamic catalog management is not enabled. Set catalog.management=dynamic in the Trino coordinator configuration and restart it: ...` | The coordinator was started without dynamic catalog management, so `CREATE CATALOG` cannot run. | Set `catalog.management=dynamic` in `etc/config.properties` and restart the coordinator. |
+| A warning `Trino version is older than the supported minimum` with `version` and `minimum` fields, or `Trino version probe failed; continuing without a detected version` | The coordinator is older than the supported minimum, or `SELECT version()` could not be read. A failed probe is non-fatal and is retried by the next call. | Upgrade to a supported Trino release. The warning does not stop the provider; the server remains the authority on errors. |
+| `terraform plan` proposes `# trino_grant_privileges.<name> will be created` for a grant that already exists, and `data.trino_table_privileges` returns an empty `privileges` list | The provider identity cannot see other principals' grants in `information_schema.table_privileges`; Trino filters that view by authorization. | Run Terraform as an identity with admin rights or `SELECT` on `information_schema.table_privileges`, then `terraform apply` or re-import the resource. |
+| A `trino_grant_role` revoked out of band still shows `No changes. Your infrastructure matches the configuration.` | Trino cannot list another principal's role grants, so the resource is state-authoritative by design. | Re-apply the grant, or `terraform state rm` the resource and import it again with `catalog.role:USER:grantee`. |
+| `Error: Password requires TLS` with `Basic auth sends the password to the server, so the endpoint must use https.` | `auth = "basic"` is combined with an `http://` endpoint. | Use an `https://` endpoint (with `ca_cert_file` or `insecure_skip_verify` if needed), or `auth = "none"` for a coordinator without authentication. |
+| `SHOW ROLES FROM hive` reports `analyst` for a role configured as `Analyst`, while `terraform plan` stays clean | Hive normalises role names to lowercase; the provider matches them case-insensitively and keeps the configured spelling in state. | Use lowercase role names. Do not rewrite state to the server spelling. |
+| `Error: Failed to query available provider packages` with either `provider registry.terraform.io/caberdo/trino was not found in any of the search locations` or `no available releases match the given constraints ~> 0.1` | `make install` names the plugin directory after `git describe`, for example `v0.1.1-4-gd1d6e16`, which is not a release version Terraform's filesystem discovery accepts. | Install with an explicit version (`make install VERSION=0.1.2`) or use a `dev_overrides` block, which ignores version constraints. |
+
+The error classification behind these diagnostics is described in
+[Architecture → Error taxonomy](ARCHITECTURE.md#error-taxonomy).
+
 ## Required Trino privileges
 
 | Resource | Identity needs |
@@ -218,14 +236,27 @@ the contract and is reproduced in the generated resource pages.
 
 ## Development
 
-```bash
-make build             # build bin/terraform-provider-trino
-make test              # unit tests
-make coverage          # unit coverage profile + summary
-make lint              # golangci-lint
-make validate-examples # terraform fmt/validate every example
-make generate          # regenerate docs/ with tfplugindocs
-```
+The toolchain versions are listed under [Requirements](#requirements). These are
+the `GNUmakefile` targets:
+
+| Target | Purpose |
+|---|---|
+| `make build` | Build `bin/terraform-provider-trino`. |
+| `make install` | Build and copy into `~/.terraform.d/plugins`; pass `VERSION=0.1.2` for a release-shaped plugin directory. |
+| `make test` | Unit tests. |
+| `make fuzz` | Fuzz the quoting and schema parsers for `FUZZTIME` (default `10s`) per target. |
+| `make coverage` | Unit coverage profile (`coverage.out`) and summary. |
+| `make coverage-gate` | Fail when `coverage.out` is below the module floor in `.github/coverage-baseline.txt` or a package floor in `.github/coverage-floors.txt`; run `make coverage` first. |
+| `make coverage-readme` / `make coverage-readme-check` | Regenerate the README coverage badge and floor statement, or fail when they drift from the baseline. |
+| `make coverage-html` | Generate the HTML coverage report. |
+| `make coverage-merge` | Merge the unit and acceptance profiles into one number. |
+| `make lint` / `make lint-fix` | Run `golangci-lint`, optionally applying fixes. |
+| `make fmt` / `make vet` | `gofmt` and `go vet`. |
+| `make testacc` | Acceptance tests against an already reachable coordinator (`TF_ACC=1`). |
+| `make testacc-docker` | Acceptance tests against Trino in Docker. |
+| `make testacc-matrix` | Acceptance tests against every version in `.github/trino-versions.txt`. |
+| `make validate-examples` | `terraform fmt`/`validate` every example. |
+| `make generate` | Regenerate `docs/` with `tfplugindocs`. |
 
 Acceptance tests need Docker Compose (Podman works too: `COMPOSE=podman-compose`):
 
@@ -234,6 +265,10 @@ make testacc-docker TRINO_VERSION=484
 make testacc-docker COMPOSE=podman-compose
 make testacc-matrix
 ```
+
+The contribution workflow, review gates and contract-change protocol are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md); request flow and test layers are in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 <!-- coverage:start -->
 ![Coverage floor](https://img.shields.io/badge/coverage%20floor-80%25-green)
@@ -246,6 +281,8 @@ The coverage gate fails below **80%** (`./scripts/coverage-gate.sh`).
 - [Architecture](ARCHITECTURE.md) — request flow, executor internals, error
   taxonomy, auth matrix and test layers.
 - [Contributing](CONTRIBUTING.md) — development workflow and review gates.
+- [Releasing](contributing/releasing.md) — maintainer runbook for the tag,
+  publish, verification and recovery path.
 - [Security](SECURITY.md) — supported versions, threat model and reporting.
 - [Changelog](CHANGELOG.md).
 - [Generated provider docs](docs/index.md).
