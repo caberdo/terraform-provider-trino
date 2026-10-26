@@ -110,4 +110,10 @@ validate-examples:
 generate:
 	go generate ./...
 
-.PHONY: default build test coverage coverage-html coverage-merge coverage-readme coverage-readme-check coverage-gate testacc testacc-docker testacc-matrix fuzz lint lint-fix fmt vet install validate-examples generate
+# Fail when the release metadata a release pull request carries is inconsistent.
+# The tag workflow enforces the same agreement on main; this keeps the failure
+# in the pull request instead of after the merge.
+release-check:
+	./scripts/release-check.sh
+
+.PHONY: default build test coverage coverage-html coverage-merge coverage-readme coverage-readme-check coverage-gate testacc testacc-docker testacc-matrix fuzz lint lint-fix fmt vet install validate-examples generate release-check

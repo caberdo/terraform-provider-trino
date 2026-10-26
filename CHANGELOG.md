@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.2.0] - 2026-10-26
+
 ### Added
 
 - `trino_view` resource for SQL views: quoted `CREATE`/`DROP VIEW`,
@@ -49,6 +51,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A release is now a pull request: merging a change to `VERSION` starts the
+  `Create Release Tag` workflow, which signs the tag and publishes the release
+  without a manual dispatch. `make release-check` and the `Test` job fail when
+  `VERSION`, `CHANGELOG.md` and the README install constraint disagree.
 - CI enforces per-package coverage floors from `.github/coverage-floors.txt`
   in addition to the module total, discovers the package list with
   `go list ./internal/...`, and names every package below its floor.
