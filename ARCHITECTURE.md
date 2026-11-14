@@ -105,7 +105,7 @@ any request is made.
 |---|---|---|---|
 | `none` | none | `http` or `https` | Any password/token/OAuth2 secret set alongside `none` |
 | `basic` | `user` + `password` | `https` only | Password over `http`; missing password |
-| `jwt` | `access_token` | `http` or `https` | Token plus another mode's credentials |
+| `jwt` | `access_token` | `https` only | Token over `http`; token plus another mode's credentials |
 | `oauth2` | client ID + secret + token endpoint | `http` or `https` | Missing endpoint (476 has no discovery), missing credentials |
 | `kerberos` | principal + realm + keytab **or** ccache | `https` only | Keytab and ccache together, realm in the service pattern, missing realm with a keytab |
 

@@ -85,7 +85,7 @@ provider "trino" {
 | `auth` | string | `TRINO_AUTH` | `none`, `basic`, `jwt`, `oauth2` or `kerberos`. Inferred from the credentials when unset. |
 | `user` | string | `TRINO_USER` | Defaults to `terraform`. |
 | `password` | string, sensitive | `TRINO_PASSWORD` | Basic auth. Requires an `https` endpoint. |
-| `access_token` | string, sensitive | `TRINO_ACCESS_TOKEN` | Static JWT; also sent as `X-Trino-Authorization-User`. |
+| `access_token` | string, sensitive | `TRINO_ACCESS_TOKEN` | Static JWT; requires an `https` endpoint; also sent as `X-Trino-Authorization-User`. |
 | `oauth2_client_id` | string | `TRINO_OAUTH2_CLIENT_ID` | Client-credentials flow. |
 | `oauth2_client_secret` | string, sensitive | `TRINO_OAUTH2_CLIENT_SECRET` | Client-credentials flow. |
 | `oauth2_token_endpoint` | string | `TRINO_OAUTH2_TOKEN_ENDPOINT` | **Required** for `auth = "oauth2"`: Trino 476 has no discovery. |
@@ -102,7 +102,7 @@ provider "trino" {
 | `catalog` | string | `TRINO_CATALOG` | Default catalog for every statement. |
 | `schema` | string | `TRINO_SCHEMA` | Default schema for every statement. |
 | `session_properties` | map(string) | — | `X-Trino-Session` on every request. |
-| `extra_credentials` | map(string), sensitive | — | `X-Trino-Extra-Credential` on every request. |
+| `extra_credentials` | map(string), sensitive | — | `X-Trino-Extra-Credential` on every request; keys must be valid header names. |
 | `roles` | map(string) | — | Catalog to role mapping, for example `{ hive = "admin" }`. |
 | `http_headers` | map(string), sensitive | — | Static headers for gateway or proxy auth. |
 | `query_timeout` | string | `TRINO_QUERY_TIMEOUT` | Duration, default `5m`. Bounds every operation. |
@@ -120,7 +120,7 @@ provider "trino" {
 |---|---|
 | `none` | No credentials. Rejected if a password, token or OAuth2 secret is set. |
 | `basic` | `user` + `password` over `https`. Password over `http` is rejected before dialling. |
-| `jwt` | `access_token`. |
+| `jwt` | `access_token` over `https`. Token over `http` is rejected before dialling. |
 | `oauth2` | `oauth2_client_id`, `oauth2_client_secret` and `oauth2_token_endpoint`. |
 | `kerberos` | `https` endpoint, `kerberos_principal` + `kerberos_realm`, and **either** `kerberos_keytab` **or** `kerberos_credential_cache`. |
 
