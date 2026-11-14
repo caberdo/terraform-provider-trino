@@ -34,7 +34,7 @@ jobs:
 
       # Build the linter with the toolchain in go.mod instead of downloading the
       # prebuilt binary. Released binaries are built with an older Go (v2.15.0
-      # ships go1.27.0), which cannot read Go 1.27.3 export data: the lint run
+      # ships go1.27.0), which cannot read Go 1.27.4 export data: the lint run
       # fails with "export data version 5 is greater than maximum supported
       # version 4". goinstall mode compiles v2.15.0 with the same Go as the
       # module, so the two stay in step.
@@ -61,7 +61,7 @@ jobs:
 
       # Run gosec with the job's Go toolchain for the same reason as the linter:
       # the pinned action image is built with an older Go (v2.30.0 ships a
-      # toolchain that cannot read Go 1.27.3 export data) and fails with
+      # toolchain that cannot read Go 1.27.4 export data) and fails with
       # "package main has type errors, skipping SSA analysis". Pinning the
       # module version keeps the scanner reproducible without the image.
       - name: Run Gosec Security Scanner

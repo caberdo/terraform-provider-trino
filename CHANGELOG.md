@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Security
+
+- Build with Go 1.27.4, which carries the `net/http` fix for GO-2026-6859
+  reported by `govulncheck`; the acceptance harness image follows the module's
+  toolchain.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added

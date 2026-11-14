@@ -81,7 +81,7 @@ services:
         condition: service_healthy
 
   test:
-    image: golang:1.27.3
+    image: golang:1.27.4
     volumes:
       - .:/app
       - go-modules:/go/pkg/mod
