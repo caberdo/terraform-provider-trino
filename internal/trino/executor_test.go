@@ -3,7 +3,10 @@ package trino_test
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -130,5 +133,47 @@ func TestExecutorVersionSingleFlight(t *testing.T) {
 	}
 	if got := len(server.Requests()); got != 1 {
 		t.Errorf("got %d requests, want one shared probe", got)
+	}
+}
+
+// TestExecutorRefusesCoordinatorRedirectDowngrade pins the property the
+// provider relies on: the HTTPClient it injects (TLS material, mTLS, static
+// headers) is handed back to the caller without following redirects, so a
+// coordinator cannot bounce a credentialed request to another server. The
+// driver applies that wrapper itself; the test fails if a future client setup
+// opts out of it.
+func TestExecutorRefusesCoordinatorRedirectDowngrade(t *testing.T) {
+	var followed atomic.Int64
+	plaintext := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		followed.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"redirected","stats":{"state":"FINISHED"}}`))
+	}))
+	defer plaintext.Close()
+
+	coordinator := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plaintext.URL+"/v1/statement", http.StatusTemporaryRedirect)
+	}))
+	defer coordinator.Close()
+
+	client, err := trino.NewHTTPClient(trino.TLSOptions{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatalf("NewHTTPClient: %v", err)
+	}
+	executor, err := trino.Open(trino.Options{ServerURI: coordinator.URL, HTTPClient: client})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = executor.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := executor.QueryOne(ctx, "SELECT 1"); err == nil {
+		t.Fatal("expected the redirect to be refused")
+	} else if !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("error %q does not name the refused redirect", err)
+	}
+	if n := followed.Load(); n != 0 {
+		t.Fatalf("plaintext server received %d request(s) after the redirect", n)
 	}
 }

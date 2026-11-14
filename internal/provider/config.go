@@ -267,6 +267,10 @@ func (c Config) Validate() diag.Diagnostics {
 		}
 		forbidOAuth2(&diags, c, authJWT)
 		forbidKerberos(&diags, c, authJWT)
+		if c.AccessToken != "" && endpointOK && endpointScheme == "http" {
+			attributeError(&diags, "access_token", "Access token requires TLS",
+				"JWT auth sends the access token to the server, so the endpoint must use https.")
+		}
 	case authOAuth2:
 		if c.OAuth2ClientID == "" {
 			attributeError(&diags, "oauth2_client_id", "OAuth2 client ID is required",
@@ -324,6 +328,7 @@ func (c Config) Validate() diag.Diagnostics {
 	validateTLS(&diags, c)
 	validateQueryTimeout(&diags, c.QueryTimeout)
 	validateSessionProperties(&diags, c.SessionProperties)
+	validateExtraCredentials(&diags, c.ExtraCredentials)
 	validateRoles(&diags, c.Roles)
 	validateFiles(&diags, c)
 	for _, envErr := range c.envErrors {
@@ -545,10 +550,21 @@ func validateQueryTimeout(diags *diag.Diagnostics, value string) {
 }
 
 func validateSessionProperties(diags *diag.Diagnostics, properties map[string]string) {
-	keys := sortedKeys(properties)
-	for _, key := range keys {
+	validateHeaderMap(diags, properties, "session_properties", "Session property key is invalid")
+}
+
+// validateExtraCredentials applies the driver's header-key rule to
+// extra_credentials as well. The driver rejects the same keys in NewConnector,
+// but a targeted attribute error beats a connector error that names neither
+// the map nor the key.
+func validateExtraCredentials(diags *diag.Diagnostics, credentials map[string]string) {
+	validateHeaderMap(diags, credentials, "extra_credentials", "Extra credential key is invalid")
+}
+
+func validateHeaderMap(diags *diag.Diagnostics, values map[string]string, attribute, summary string) {
+	for _, key := range sortedKeys(values) {
 		if !validMapKey(key) {
-			attributeError(diags, "session_properties", "Session property key is invalid",
+			attributeError(diags, attribute, summary,
 				"Keys must be non-empty printable ASCII without spaces, equals signs or commas.")
 			return
 		}

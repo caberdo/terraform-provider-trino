@@ -127,6 +127,31 @@ func TestValidatePasswordRequiresTLS(t *testing.T) {
 	}
 }
 
+func TestValidateTokenRequiresTLS(t *testing.T) {
+	clearTrinoEnv(t)
+	cfg := Config{Endpoint: "http://localhost:8080", AccessToken: "t"}
+	diags := cfg.Validate()
+	if !diags.HasError() {
+		t.Fatal("expected error")
+	}
+	if !hasAttr(diags, "access_token") {
+		t.Fatalf("expected access_token attribute error, got %v", diags)
+	}
+	// The mode is inferred from the token, so the error must point at the
+	// attribute that carries it rather than at auth.
+	if got := diags[0].Detail(); !strings.Contains(got, "https") {
+		t.Fatalf("detail %q", got)
+	}
+}
+
+func TestValidateTokenAllowsHTTPS(t *testing.T) {
+	clearTrinoEnv(t)
+	cfg := Config{Endpoint: "https://localhost:8443", AccessToken: "t"}
+	if diags := cfg.Validate(); diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+}
+
 func TestValidateAuthModesExclusive(t *testing.T) {
 	clearTrinoEnv(t)
 	cfg := Config{Endpoint: "https://x:8443", User: "u", Auth: "basic", Password: "p", AccessToken: "t"}
@@ -394,6 +419,22 @@ func TestValidateSessionProperties(t *testing.T) {
 		cfg := &Config{Endpoint: "https://x:8443", SessionProperties: map[string]string{key: "1"}}
 		if diags := cfg.Validate(); !hasAttr(diags, "session_properties") {
 			t.Fatalf("%q: expected session_properties error, got %v", key, diags)
+		}
+	}
+}
+
+func TestValidateExtraCredentials(t *testing.T) {
+	clearTrinoEnv(t)
+
+	valid := &Config{Endpoint: "https://x:8443", ExtraCredentials: map[string]string{"hive.jdbc.user": "alice"}}
+	if diags := valid.Validate(); diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	for _, key := range []string{"", "has space", "has=equals", "has,comma", "nönascii"} {
+		cfg := &Config{Endpoint: "https://x:8443", ExtraCredentials: map[string]string{key: "1"}}
+		if diags := cfg.Validate(); !hasAttr(diags, "extra_credentials") {
+			t.Fatalf("%q: expected extra_credentials error, got %v", key, diags)
 		}
 	}
 }
