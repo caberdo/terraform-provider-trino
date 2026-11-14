@@ -219,8 +219,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/trinodb/trino-go-client v1.4.1 h1:3Q9Q2g3MghR2QC0OOLgvhq4pHsPrOZQ//cJ0tQ4xOOw=
-github.com/trinodb/trino-go-client v1.4.1/go.mod h1:xXaYKgarrr6C8/giUfoyVaTMGAJnFFT5sw7Qj7cE4fE=
+github.com/trinodb/trino-go-client v1.5.0 h1:XOfFC/2B834b9aLrq4He2gIJJK9rhg+VNUkRphI6Pj4=
+github.com/trinodb/trino-go-client v1.5.0/go.mod h1:xXaYKgarrr6C8/giUfoyVaTMGAJnFFT5sw7Qj7cE4fE=
 github.com/vmihailenco/msgpack v3.3.3+incompatible/go.mod h1:fy3FlTQTDXWkZ7Bh6AcGMlsjHatGryHQYUTf1ShIgkk=
 github.com/vmihailenco/msgpack v4.0.4+incompatible h1:dSLoQfGFAo3F6OoNhwUmLwVgaUXK79GlxNBwueZn0xI=
 github.com/vmihailenco/msgpack v4.0.4+incompatible/go.mod h1:fy3FlTQTDXWkZ7Bh6AcGMlsjHatGryHQYUTf1ShIgkk=
