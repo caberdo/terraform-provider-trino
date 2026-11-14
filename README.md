@@ -85,7 +85,7 @@ provider "trino" {
 | `auth` | string | `TRINO_AUTH` | `none`, `basic`, `jwt`, `oauth2` or `kerberos`. Inferred from the credentials when unset. |
 | `user` | string | `TRINO_USER` | Defaults to `terraform`. |
 | `password` | string, sensitive | `TRINO_PASSWORD` | Basic auth. Requires an `https` endpoint. |
-| `access_token` | string, sensitive | `TRINO_ACCESS_TOKEN` | Static JWT; also sent as `X-Trino-Authorization-User`. |
+| `access_token` | string, sensitive | `TRINO_ACCESS_TOKEN` | Static JWT; requires an `https` endpoint; also sent as `X-Trino-Authorization-User`. |
 | `oauth2_client_id` | string | `TRINO_OAUTH2_CLIENT_ID` | Client-credentials flow. |
 | `oauth2_client_secret` | string, sensitive | `TRINO_OAUTH2_CLIENT_SECRET` | Client-credentials flow. |
 | `oauth2_token_endpoint` | string | `TRINO_OAUTH2_TOKEN_ENDPOINT` | **Required** for `auth = "oauth2"`: Trino 476 has no discovery. |
@@ -120,7 +120,7 @@ provider "trino" {
 |---|---|
 | `none` | No credentials. Rejected if a password, token or OAuth2 secret is set. |
 | `basic` | `user` + `password` over `https`. Password over `http` is rejected before dialling. |
-| `jwt` | `access_token`. |
+| `jwt` | `access_token` over `https`. Token over `http` is rejected before dialling. |
 | `oauth2` | `oauth2_client_id`, `oauth2_client_secret` and `oauth2_token_endpoint`. |
 | `kerberos` | `https` endpoint, `kerberos_principal` + `kerberos_realm`, and **either** `kerberos_keytab` **or** `kerberos_credential_cache`. |
 

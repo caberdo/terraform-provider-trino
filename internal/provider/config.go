@@ -267,6 +267,10 @@ func (c Config) Validate() diag.Diagnostics {
 		}
 		forbidOAuth2(&diags, c, authJWT)
 		forbidKerberos(&diags, c, authJWT)
+		if c.AccessToken != "" && endpointOK && endpointScheme == "http" {
+			attributeError(&diags, "access_token", "Access token requires TLS",
+				"JWT auth sends the access token to the server, so the endpoint must use https.")
+		}
 	case authOAuth2:
 		if c.OAuth2ClientID == "" {
 			attributeError(&diags, "oauth2_client_id", "OAuth2 client ID is required",

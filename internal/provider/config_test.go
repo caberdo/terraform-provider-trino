@@ -127,6 +127,31 @@ func TestValidatePasswordRequiresTLS(t *testing.T) {
 	}
 }
 
+func TestValidateTokenRequiresTLS(t *testing.T) {
+	clearTrinoEnv(t)
+	cfg := Config{Endpoint: "http://localhost:8080", AccessToken: "t"}
+	diags := cfg.Validate()
+	if !diags.HasError() {
+		t.Fatal("expected error")
+	}
+	if !hasAttr(diags, "access_token") {
+		t.Fatalf("expected access_token attribute error, got %v", diags)
+	}
+	// The mode is inferred from the token, so the error must point at the
+	// attribute that carries it rather than at auth.
+	if got := diags[0].Detail(); !strings.Contains(got, "https") {
+		t.Fatalf("detail %q", got)
+	}
+}
+
+func TestValidateTokenAllowsHTTPS(t *testing.T) {
+	clearTrinoEnv(t)
+	cfg := Config{Endpoint: "https://localhost:8443", AccessToken: "t"}
+	if diags := cfg.Validate(); diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+}
+
 func TestValidateAuthModesExclusive(t *testing.T) {
 	clearTrinoEnv(t)
 	cfg := Config{Endpoint: "https://x:8443", User: "u", Auth: "basic", Password: "p", AccessToken: "t"}

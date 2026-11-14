@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- `auth = "jwt"` now requires an `https` endpoint: an access token over
+  `http` is rejected with a diagnostic on `access_token` before any connection
+  is opened. `trino-go-client` v1.5.0 refuses the same combination inside the
+  driver, so the provider fails fast with the attribute that caused it instead
+  of a generic connector error.
+
 ### Security
 
 - Build with Go 1.27.4, which carries the `net/http` fix for GO-2026-6859
