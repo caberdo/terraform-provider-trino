@@ -9,7 +9,7 @@ owns no truth of its own: every read is a SQL query, every mutation is a DDL
 statement, and every unsupported Trino capability is either rejected with an
 actionable diagnostic or documented as a known limitation.
 
-> **Status:** v0.2.0 released. The eight resources and five data sources are
+> **Status:** v0.3.0 released. The eight resources and five data sources are
 > implemented, documented and covered by unit, protocol and Docker acceptance
 > tests.
 
@@ -32,7 +32,7 @@ terraform {
   required_providers {
     trino = {
       source  = "caberdo/trino"
-      version = "~> 0.2"
+      version = "~> 0.3"
     }
   }
 }

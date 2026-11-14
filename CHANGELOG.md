@@ -6,8 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.3.0] - 2026-11-14
+
 ### Changed
 
+- `github.com/trinodb/trino-go-client` is now v1.5.0: access tokens require TLS,
+  coordinator redirects and `nextUri` downgrades are refused, and the spooling
+  and row-lifecycle fixes harden long-running queries.
 - `auth = "jwt"` now requires an `https` endpoint: an access token over
   `http` is rejected with a diagnostic on `access_token` before any connection
   is opened. `trino-go-client` v1.5.0 refuses the same combination inside the
