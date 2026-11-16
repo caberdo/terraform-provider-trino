@@ -11,6 +11,11 @@ COMPOSE ?= docker compose
 # Supported versions, single-sourced with the CI matrix. Override for a quick
 # local check: TRINO_VERSIONS="484 483" make testacc-matrix
 TRINO_VERSIONS ?= $(shell tr '\n' ' ' < .github/trino-versions.txt)
+# The shared tooling for the caberdo providers: the coverage gate, merge and
+# README targets, example validation and the release-metadata check. Keep this
+# pin equal to the `uses:` refs in .github/workflows/*.yml: one version for the
+# local targets and the reusable workflows, so they cannot drift apart.
+TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.5.0
 
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
@@ -23,7 +28,7 @@ test:
 coverage:
 	go test -count=1 -skip '^TestAcc' -covermode=atomic -coverprofile=coverage.out ./internal/...
 	@echo
-	@./scripts/coverage-summary.sh coverage.out
+	@go tool cover -func=coverage.out
 
 coverage-html: coverage
 	go tool cover -html=coverage.out
@@ -31,24 +36,26 @@ coverage-html: coverage
 # Unit coverage (coverage.out) plus the acceptance profile written by
 # docker-compose.yml (coverage-acceptance.out) as one number.
 coverage-merge:
-	./scripts/merge-coverage.sh coverage-union.out coverage.out coverage-acceptance.out
+	$(TFKIT) coverage merge --output coverage-union.out coverage.out coverage-acceptance.out
 	@echo
-	@./scripts/coverage-summary.sh coverage-union.out
+	@go tool cover -func=coverage-union.out
 
 # Regenerate the coverage badge and floor statement in README.md from
 # .github/coverage-baseline.txt; `make coverage-readme-check` fails when the
-# committed README has drifted from the baseline.
+# committed README has drifted from the baseline. tfkit renders the sentence
+# around `make coverage-gate` itself, and the `ci` job re-runs this check
+# (`coverage-readme-in-test`), so the local and CI verdicts use one default.
 coverage-readme:
-	./scripts/coverage-readme.sh
+	$(TFKIT) coverage readme
 
 coverage-readme-check:
-	./scripts/coverage-readme.sh --check
+	$(TFKIT) coverage readme --check
 
 # Fail when coverage.out (unit + protocol) is below the floor in
 # .github/coverage-baseline.txt. Acceptance coverage is reported separately and
 # is not gated: it depends on Docker being available (design §10).
 coverage-gate:
-	./scripts/coverage-gate.sh coverage.out
+	$(TFKIT) coverage gate --profile coverage.out
 
 testacc:
 	TF_ACC=1 go test -v -cover ./internal/...
@@ -104,8 +111,12 @@ install: build
 	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/caberdo/trino/$(VERSION)/$$(go env GOOS)_$$(go env GOARCH)
 	cp bin/$(BINARY_NAME) ~/.terraform.d/plugins/registry.terraform.io/caberdo/trino/$(VERSION)/$$(go env GOOS)_$$(go env GOARCH)/$(BINARY_NAME)
 
+# Validate every Terraform example against the provider built from this tree.
+# tfkit builds into a temporary directory; set TFKIT_PLUGIN_DIR (or pass
+# --plugin-dir) to pin that directory, so parallel runs do not overwrite each
+# other's build.
 validate-examples:
-	./scripts/validate-examples.sh
+	$(TFKIT) examples validate --provider trino
 
 generate:
 	go generate ./...
@@ -114,6 +125,6 @@ generate:
 # The tag workflow enforces the same agreement on main; this keeps the failure
 # in the pull request instead of after the merge.
 release-check:
-	./scripts/release-check.sh
+	$(TFKIT) release check
 
 .PHONY: default build test coverage coverage-html coverage-merge coverage-readme coverage-readme-check coverage-gate testacc testacc-docker testacc-matrix fuzz lint lint-fix fmt vet install validate-examples generate release-check

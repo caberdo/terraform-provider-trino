@@ -79,9 +79,9 @@ with the code they cover.
 - Coverage must be checked before claiming work is done, and it must never drop
   below the global floor in `.github/coverage-baseline.txt` or a package floor
   in `.github/coverage-floors.txt`. Run `make coverage` (and the acceptance
-  suite where relevant) and confirm `./scripts/coverage-gate.sh` passes before
-  opening or merging a pull request; if a change adds uncovered code, add tests
-  or lower the floor deliberately in the same change.
+  suite where relevant) and confirm `make coverage-gate` passes before opening or
+  merging a pull request; if a change adds uncovered code, add tests or lower the
+  floor deliberately in the same change.
 - Read-back behaviour must match the spec's matrix. Never silently zero an
   unreadable attribute; preserve state.
 

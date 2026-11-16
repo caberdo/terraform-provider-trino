@@ -1,4 +1,5 @@
-# Per-package statement coverage floors for scripts/coverage-gate.sh.
+# Per-package statement coverage floors for the coverage gate (make
+# coverage-gate, i.e. `tfkit coverage gate`).
 #
 # Every package returned by `go list ./internal/...` is measured against its
 # entry here, or against `default` when it has no entry. A package that exists
