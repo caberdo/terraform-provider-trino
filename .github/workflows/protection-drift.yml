@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   drift:
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-protection.yml@v0.2.0
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-protection.yml@v0.3.0
     # `issues: write` opens, updates and closes the single drift issue.
     permissions:
       contents: read
@@ -36,3 +36,8 @@ jobs:
       BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
     with:
       ruleset-name: main-protection
+      # The status-check contexts the ruleset requires, spelled as the caller
+      # job id and the called job's name produce them. tfkit otherwise falls
+      # back to its pre-migration default ("Lint & Security,Test"), which no job
+      # in this repository reports, so every weekly run would look like drift.
+      required-contexts: "ci / Lint & Security,ci / Test"

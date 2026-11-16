@@ -345,7 +345,7 @@ The contribution workflow, review gates and contract-change protocol are in
 <!-- coverage:start -->
 ![Coverage floor](https://img.shields.io/badge/coverage%20floor-80%25-green)
 
-The coverage gate fails below **80%** (`./scripts/coverage-gate.sh`).
+The coverage gate fails below **80%** (`make coverage-gate`).
 <!-- coverage:end -->
 
 ## Verified unsupported
