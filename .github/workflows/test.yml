@@ -23,9 +23,23 @@ concurrency:
 jobs:
   ci:
     uses: caberdo/terraform-provider-kit/.github/workflows/provider-ci.yml@v0.2.0
-    # The Lint & Security job uploads the gosec SARIF result to code scanning.
+    # GitHub validates a caller's grant against every job of the called workflow
+    # before any `if:` or input is evaluated, so these are the union of what
+    # provider-ci declares, not what this run happens to execute:
+    #
+    # - `contents: write` + `pull-requests: write`: requested unconditionally by
+    #   the called `docs` job. Omitting them rejects the whole run with "The
+    #   nested job 'docs' is requesting 'contents: write, pull-requests: write'"
+    #   — even though `docs-mode: none` means that job only explains itself.
+    # - `security-events: write`: the `Lint & Security` job uploads gosec SARIF
+    #   to code scanning.
+    #
+    # This does not widen the token any other job runs with: every other job in
+    # provider-ci.yml re-declares `contents: read` (and nothing else), and a
+    # called job can narrow the caller's grant, never widen it.
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
       security-events: write
     with:
       provider: trino
@@ -55,6 +69,12 @@ jobs:
   # across a reusable-workflow boundary, so `needs: ci` is the only faithful
   # spelling: a failing or skipped `ci` skips acceptance, exactly as a failing
   # `test` did before.
+  #
+  # This gate is slightly wider than today's: it covers every `ci` job, not only
+  # `test` (which already needed `lint`). Inert now — the extra jobs are skipped
+  # or no-op — but it becomes live if `markdown`, `dependency-review` or
+  # `coverage-job` is ever enabled: a failure there would then skip acceptance
+  # where today it would not.
   acceptance:
     needs: ci
     uses: caberdo/terraform-provider-kit/.github/workflows/provider-acceptance.yml@v0.2.0

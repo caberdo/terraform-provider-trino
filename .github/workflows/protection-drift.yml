@@ -30,7 +30,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-    # Forwards BRANCH_PROTECTION_TOKEN; it stays optional.
-    secrets: inherit
+    # The called workflow reads one optional secret; an explicit mapping keeps
+    # the rest of the repository's secrets out of it.
+    secrets:
+      BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
     with:
       ruleset-name: main-protection
