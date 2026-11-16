@@ -1,7 +1,9 @@
 # Terraform Provider for Trino
 
 [![CI](https://img.shields.io/github/actions/workflow/status/caberdo/terraform-provider-trino/test.yml?branch=main&label=CI)](https://github.com/caberdo/terraform-provider-trino/actions/workflows/test.yml)
-[![Coverage](https://img.shields.io/badge/coverage%20floor-80%25-green)](#testing-and-coverage)
+<!-- coverage-badge:start -->
+[![Coverage floor](https://img.shields.io/badge/coverage%20floor-80%25-green)](#testing-and-coverage)
+<!-- coverage-badge:end -->
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/caberdo/terraform-provider-trino/badge)](https://scorecard.dev/viewer/?uri=github.com/caberdo/terraform-provider-trino)
 [![Release](https://img.shields.io/github/v/release/caberdo/terraform-provider-trino?label=release)](https://github.com/caberdo/terraform-provider-trino/releases)
 [![Terraform Registry](https://img.shields.io/badge/registry-caberdo%2Ftrino-7b42bc)](https://registry.terraform.io/providers/caberdo/trino)
@@ -104,7 +106,7 @@ is a working module that manages one of each resource against a local coordinato
 |---|---|
 | Terraform | 1.9 or later (plugin protocol 6.0); also available for [OpenTofu](https://search.opentofu.org/provider/caberdo/trino) |
 | Trino | **476** or later — the minimum supported server. The CI window lives in [`.github/trino-versions.txt`](./.github/trino-versions.txt) |
-| Go (to build from source) | 1.27.x (the version in [`go.mod`](go.mod)); installing a published release needs neither Go nor the source tree |
+| Go (to build from source) | 1.27.4 (the version in [`go.mod`](go.mod)); installing a published release needs neither Go nor the source tree |
 
 ### Supported Trino versions
 
@@ -349,10 +351,16 @@ for a reproducible KDC and Trino setup.
 ## Verifying a release
 
 Every release is built by [GoReleaser](https://github.com/goreleaser/goreleaser) from a GPG-signed,
-GitHub-verified tag, and ships eleven assets: six archives
-(`terraform-provider-trino_<version>_{darwin,linux,windows}_{amd64,arm64}.zip`),
-`terraform-provider-trino_<version>_SHA256SUMS` with its detached `.sig`, the Terraform registry
-`_manifest.json`, the `_provenance.intoto.jsonl` build provenance, and `sbom.spdx.json`.
+GitHub-verified tag, and ships eleven assets:
+
+| Asset | Purpose |
+|---|---|
+| `terraform-provider-trino_<version>_{darwin,linux,windows}_{amd64,arm64}.zip` | The six provider binaries |
+| `terraform-provider-trino_<version>_SHA256SUMS` | Checksums for every artifact, including the registry manifest |
+| `terraform-provider-trino_<version>_SHA256SUMS.sig` | GPG signature over the checksums |
+| `terraform-provider-trino_<version>_manifest.json` | The Terraform registry manifest (plugin protocol versions) |
+| `terraform-provider-trino_<version>_provenance.intoto.jsonl` | SLSA build provenance over every checksummed artifact |
+| `sbom.spdx.json` | SPDX software bill of materials |
 
 Replace `<version>` with the release you are verifying. Start with the release itself:
 
@@ -432,8 +440,6 @@ make testacc-matrix
 ```
 
 <!-- coverage:start -->
-![Coverage floor](https://img.shields.io/badge/coverage%20floor-80%25-green)
-
 The coverage gate fails below **80%** (`make coverage-gate`).
 <!-- coverage:end -->
 
