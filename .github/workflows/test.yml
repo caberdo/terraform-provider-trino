@@ -1,3 +1,9 @@
+# CI is delegated to the reusable workflows in caberdo/terraform-provider-kit.
+#
+# The triggers, the concurrency group and the token scopes stay here: a
+# `workflow_call` file cannot declare triggers, and a called workflow can only
+# narrow the token its caller grants. Everything else — the job steps, the
+# versions-matrix parser, the coverage gate — lives in the kit.
 name: Test
 
 on:
@@ -15,300 +21,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint & Security
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  ci:
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-ci.yml@v0.2.0
+    # The Lint & Security job uploads the gosec SARIF result to code scanning.
     permissions:
       contents: read
       security-events: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    with:
+      provider: trino
+      provider-display: Trino
+      module: github.com/caberdo/terraform-provider-trino
+      # The matrix source of truth, named here so it cannot drift from the
+      # acceptance call below. Trino has no versions job (`versions-job` stays
+      # at its `false` default), so nothing reads it in this caller yet.
+      versions-file: .github/trino-versions.txt
+      # A release pull request is the only change that moves VERSION: the
+      # changelog check catches a mismatch before the merge instead of after it.
+      changelog: true
+      # Dependency scanning stays in the Lint & Security job, through
+      # `./scripts/govulncheck.sh` and its accepted-findings list. The default
+      # (`action`) would move it into a separate Vulnerability Scan job.
+      govuln-mode: script
+      # Replay the committed fuzz seed corpora without exploring new inputs.
+      fuzz: true
+      # The generated docs must not drift; `docs-mode: none` keeps the check in
+      # the Test job, where it lives today.
+      docs: true
+      # Keeps the Coverage section of the job summary byte-identical.
+      coverage-note: "Unit tests only: acceptance tests require `TF_ACC` and a live Trino coordinator."
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: "go.mod"
-          cache: true
-
-      # Build the linter with the toolchain in go.mod instead of downloading the
-      # prebuilt binary. Released binaries are built with an older Go (v2.15.0
-      # ships go1.27.0), which cannot read Go 1.27.4 export data: the lint run
-      # fails with "export data version 5 is greater than maximum supported
-      # version 4". goinstall mode compiles v2.15.0 with the same Go as the
-      # module, so the two stay in step.
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          version: v2.15.0
-          install-mode: goinstall
-          args: --config .golangci.yml
-
-      # Dependency vulnerabilities are invisible to gosec and CodeQL, which
-      # only read first-party code. The version is pinned here (no @latest) and
-      # documented in CONTRIBUTING.md; update it deliberately, with the go.mod
-      # toolchain it was tested against.
-      - name: Install govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      # scripts/govulncheck.sh fails only on findings that affect called code
-      # and reads accepted findings from .github/govulncheck-accepted.txt.
-      - name: Run govulncheck
-        run: ./scripts/govulncheck.sh
-
-      # Run gosec with the job's Go toolchain for the same reason as the linter:
-      # the pinned action image is built with an older Go (v2.30.0 ships a
-      # toolchain that cannot read Go 1.27.4 export data) and fails with
-      # "package main has type errors, skipping SSA analysis". Pinning the
-      # module version keeps the scanner reproducible without the image.
-      - name: Run Gosec Security Scanner
-        id: gosec
-        continue-on-error: true
-        run: |
-          go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 \
-            -fmt sarif -out gosec.sarif -exclude-dir=vendor -tests=false ./
-
-      - name: Upload security scan results
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-        if: always() && hashFiles('gosec.sarif') != ''
-        with:
-          sarif_file: gosec.sarif
-
-      - name: Fail on Gosec findings
-        if: always() && steps.gosec.outcome == 'failure'
-        run: |
-          {
-            echo "## Gosec Security Scanner Found Issues"
-            echo ""
-            if [ -f gosec.sarif ]; then
-              echo "| Rule | File | Line | Description |"
-              echo "|------|------|------|-------------|"
-              jq -r '.runs[0].results[] | "| \(.ruleId) | \(.locations[0].physicalLocation.artifactLocation.uri) | \(.locations[0].physicalLocation.region.startLine) | \(.message.text) |"' gosec.sarif
-            fi
-            echo ""
-            echo "See the **Security** tab for full details."
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: lint
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: "go.mod"
-          cache: true
-
-      - name: Build and vet
-        run: |
-          go build ./...
-          go vet ./...
-
-      - name: Verify go.mod is tidy and module hashes match
-        run: |
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-          go mod verify
-
-      - name: Cross-platform build
-        run: |
-          GOOS=windows GOARCH=amd64 go build ./...
-          GOOS=darwin GOARCH=arm64 go build ./...
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-        with:
-          terraform_version: "~> 1.9"
-          terraform_wrapper: false
-
-      - name: Validate examples
-        env:
-          REQUIRE_TERRAFORM: "1"
-        run: ./scripts/validate-examples.sh
-
-      # A release pull request is the only change that moves VERSION. Catch a
-      # mismatch with CHANGELOG.md or the README install constraint here instead
-      # of after the merge, where it would fail the tag workflow on main.
-      - name: Check release metadata
-        run: ./scripts/release-check.sh
-
-      - name: Check generated docs are up to date
-        run: |
-          go generate ./...
-          git diff --exit-code -- docs/
-
-      - name: Run tests
-        run: go test -v -race -covermode=atomic -coverprofile=coverage.out ./internal/...
-
-      # Run the committed fuzz seed corpora without exploring new inputs, so
-      # the job stays bounded and deterministic. `make fuzz` explores locally.
-      - name: Run fuzz seeds
-        run: go test ./internal/... -run '^Fuzz'
-
-      - name: Coverage summary
-        if: always()
-        run: |
-          if [[ ! -f coverage.out ]]; then
-            echo "No coverage profile: the test step failed before writing one." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          {
-            echo "## Coverage"
-            echo ""
-            echo "Unit tests only: acceptance tests require \`TF_ACC\` and a live Trino coordinator."
-            echo ""
-            ./scripts/coverage-summary.sh coverage.out
-          } >> "$GITHUB_STEP_SUMMARY"
-          ./scripts/coverage-summary.sh coverage.out
-
-      # Enforce the coverage floor on every pull request: the `Test` job is a
-      # required context, so a regression below .github/coverage-baseline.txt
-      # fails the PR instead of only surfacing on main/merge-queue.
-      - name: Coverage gate (unit)
-        if: always()
-        run: ./scripts/coverage-gate.sh coverage.out
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage
-          path: coverage.out
-          if-no-files-found: ignore
-
-  prepare:
-    name: Prepare Trino Matrix
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      versions: ${{ steps.read.outputs.versions }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # The file is the single source of truth and is ordered ascending: the
-      # first line is the declared floor, the rest is the rolling window.
-      # Pull requests get the floor plus the newest release (fast signal);
-      # main and the merge queue get the whole window.
-      - name: Read the supported versions into a JSON array
-        id: read
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          mapfile -t all < <(sed 's/[[:space:]]//g' .github/trino-versions.txt | grep -v '^$')
-          if [[ ${#all[@]} -eq 0 ]]; then
-            echo "no supported Trino version found in .github/trino-versions.txt" >&2
-            exit 1
-          fi
-          floor="${all[0]}"
-          latest="${all[${#all[@]}-1]}"
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            versions=$(jq -c -n --arg floor "$floor" --arg latest "$latest" '[$floor, $latest] | unique')
-          else
-            versions=$(printf '%s\n' "${all[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          fi
-
-          echo "versions=$versions" >> "$GITHUB_OUTPUT"
-          echo "Matrix for $EVENT_NAME: $versions (floor $floor, latest $latest)"
-
+  # Trino gates acceptance on the CI result on every trigger, pull requests and
+  # the merge queue included. A caller cannot express `needs.<job>.result`
+  # across a reusable-workflow boundary, so `needs: ci` is the only faithful
+  # spelling: a failing or skipped `ci` skips acceptance, exactly as a failing
+  # `test` did before.
   acceptance:
-    name: Acceptance Tests (Trino ${{ matrix.trino }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs:
-      - test
-      - prepare
-    if: needs.test.result == 'success'
-    strategy:
-      fail-fast: false
+    needs: ci
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-acceptance.yml@v0.2.0
+    permissions:
+      contents: read
+    with:
+      provider: trino
+      provider-display: Trino
+      versions-file: .github/trino-versions.txt
+      version-env: TRINO_VERSION
+      expect-version-env: TRINO_EXPECT_VERSION
+      # One compose project per version so matrices cannot share containers,
+      # volumes or port bindings.
+      compose-project-prefix: trino
       # Two coordinators at a time keeps memory bounded on the standard runner
       # while still letting the matrix finish in three waves.
       max-parallel: 2
-      matrix:
-        # Single source of truth: .github/trino-versions.txt, also read by
-        # `make testacc-matrix`. Pull requests run the floor and the newest
-        # release; main and the merge queue run the whole window.
-        trino: ${{ fromJSON(needs.prepare.outputs.versions) }}
-    env:
-      TRINO_VERSION: ${{ matrix.trino }}
-      TRINO_EXPECT_VERSION: ${{ matrix.trino }}
-      # One compose project per version so matrices cannot share containers,
-      # volumes or port bindings.
-      COMPOSE_PROJECT_NAME: trino-acc-${{ matrix.trino }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: "go.mod"
-          cache: true
-
-      # The acceptance container writes coverage-acceptance.out into the mounted
-      # worktree; the unit profile is produced here so both can be merged into
-      # the one statement-coverage number the project publishes.
-      - name: Unit-test coverage
-        run: go test -count=1 -skip '^TestAcc' -covermode=atomic -coverprofile=coverage.out ./internal/...
-
-      - name: Run acceptance tests
-        run: docker compose run --rm test
-
-      # Without this, a failed service exits with a bare "didn't complete
-      # successfully: exit 1" and the container's own output is lost with the
-      # runner. Dump before teardown removes the containers.
-      - name: Dump Trino logs on failure
-        if: failure()
-        run: docker compose logs --no-color > "trino-${{ matrix.trino }}.log" || true
-
-      - name: Upload Trino logs
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: trino-${{ matrix.trino }}-logs
-          path: trino-${{ matrix.trino }}.log
-          if-no-files-found: ignore
-
-      - name: Tear down the acceptance environment
-        if: always()
-        run: docker compose down -v
-
-      - name: Combined coverage (unit + acceptance)
-        if: always()
-        run: |
-          if [[ ! -f coverage.out || ! -f coverage-acceptance.out ]]; then
-            echo "Incomplete coverage profiles: unit \`coverage.out\` and acceptance" >> "$GITHUB_STEP_SUMMARY"
-            echo "\`coverage-acceptance.out\` are both required; one is missing." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          ./scripts/merge-coverage.sh coverage-union.out coverage.out coverage-acceptance.out
-          {
-            echo "## Coverage (unit + acceptance)"
-            echo ""
-            echo "\`coverage.out\` and \`coverage-acceptance.out\` merged by \`scripts/merge-coverage.sh\`."
-            echo ""
-            ./scripts/coverage-summary.sh coverage-union.out
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # Acceptance coverage is reported, not gated: it depends on Docker and a
-      # live coordinator, so the enforced floor is the unit + protocol profile
-      # produced by the `Test` job (design §10).
-      - name: Upload combined coverage
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: coverage-acceptance-${{ matrix.trino }}
-          path: |
-            coverage-acceptance.out
-            coverage-union.out
-          if-no-files-found: ignore
+      acceptance-timeout: 45
