@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   drift:
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-protection.yml@v0.10.0
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-protection.yml@v0.13.0
     # `issues: write` opens, updates and closes the single drift issue.
     permissions:
       contents: read

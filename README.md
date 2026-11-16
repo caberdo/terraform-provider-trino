@@ -457,7 +457,7 @@ the `GNUmakefile` targets for building, checking and releasing:
 | `make fmt` / `make vet` | `gofmt` and `go vet`. |
 | `make validate-examples` | `terraform fmt`/`validate` every example. |
 | `make generate` | Regenerate `docs/` with `tfplugindocs`. |
-| `make release-check` | Fail when `VERSION`, `CHANGELOG.md` and the README install constraint disagree. |
+| `make release-check` | Fail when the newest `CHANGELOG.md` section and the README install constraint disagree. The last git tag is reported, not required. |
 
 To build from source or test unreleased changes, point Terraform at a local build with a
 `dev_overrides` block in `~/.terraformrc`:
