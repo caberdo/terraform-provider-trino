@@ -218,27 +218,17 @@ the kit and is installed here by re-running the setup command.
 
 ## Releasing
 
-A release is a pull request that moves `VERSION`, cuts the `CHANGELOG.md`
-`Unreleased` section and updates the README install constraint. Merging it runs
-`Release`; a merge that leaves `VERSION` alone creates no tag and publishes
-nothing.
+A release is a signed `v*` tag: the tag is the version and there is no `VERSION`
+file. The release pull request assembles the `CHANGELOG.md` `Unreleased` section
+from the `changelog.d/` fragments and updates the README install constraint when
+the minor line moves. Merging it publishes nothing; pushing the signed tag is
+what starts the `Release` workflow, which publishes it with GoReleaser.
 
-`Release` runs two jobs through the kit's reusable release workflow: `Tag the
-release` runs when the pushed range changed `VERSION` (a job guard, so a
-multi-commit push works too), resolves the version — from `VERSION` on a push,
-from the `version` input on a dispatch, else from a `release_type` bump of the
-latest tag — refuses a version the changelog does not date, and pushes a signed
-tag. `GoReleaser` then checks that tag out in the same run and builds, attests,
-SBOMs and publishes the release; it is skipped whenever no tag was created.
-
-An existing tag that already points at this commit is not an error
-(`tag-exists: skip`), so re-running a release that already tagged does not fail.
-The manual dispatch covers what the merge cannot: the first tag of a new line, a
-re-tag after a failure that happened before the tag was pushed, and republishing
-an existing tag by passing `tag: vX.Y.Z`. The former separate
-`Create Release Tag` workflow no longer exists: its tag job is now the first job
-of `Release`. The full path, including verification and recovery, is in
-[`contributing/releasing.md`](contributing/releasing.md).
+Tag creation is a maintainer step (`git tag -s vX.Y.Z`, then push), so there is
+no dispatch that invents a version. `Release` with an existing tag republishes a
+failed one. The full path, including verification and recovery, is in
+[`contributing/releasing.md`](contributing/releasing.md). Do not delete or move
+a tag to recover a failed publish.
 
 ## Commits
 

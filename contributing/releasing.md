@@ -1,10 +1,13 @@
 # Releasing the provider
 
-This is the maintainer runbook for shipping a release. A release is a pull
-request that moves `VERSION` and cuts the changelog; merging it runs `Release`,
-whose tag job signs the tag and whose GoReleaser job publishes it. This runbook
-covers that path end to end, plus the manual dispatch and recovery steps for the
-cases a merge cannot cover.
+This is the maintainer runbook for shipping a release. A release is a signed
+`v*` tag: the last tag is the released version, and this repository carries no
+`VERSION` file. The release pull request assembles `CHANGELOG.md` from the
+fragments in `changelog.d/` and, at a minor release, updates the README install
+constraint; merging it publishes nothing. Pushing the signed tag is what starts
+the `Release` workflow, which publishes the release with GoReleaser. This
+runbook covers that path end to end, plus the manual dispatch and recovery steps
+for the cases a tag push cannot cover.
 
 The example version in every command is `0.2.1`. Substitute the version you are
 shipping; the tag always carries a `v` prefix. Run the commands from a clone of
@@ -27,15 +30,14 @@ git switch -c release/0.2.1
 ```
 
 Decide the version from the [patch-or-minor table](#6-patch-or-minor) below. A
-release pull request changes three files consistently, plus any regenerated
+release pull request changes two files consistently, plus any regenerated
 reference under `docs/`:
 
-1. `VERSION` — the version without the `v` prefix, for example `0.2.1`. This is
-   the release trigger: only a merge that changes it starts a release.
-2. `CHANGELOG.md` — move everything under `## Unreleased` into a new
-   `## [0.2.1] - YYYY-MM-DD` section, leaving the `## Unreleased` heading in
-   place.
-3. `README.md` — the status line and, at a minor release, the install
+1. `CHANGELOG.md` — group the `changelog.d/` fragments by kind under a new
+   `## [0.2.1] - YYYY-MM-DD` section, delete the processed fragments, and leave
+   the `## Unreleased` heading in place. This is the only pull request that
+   edits the changelog; there is no `VERSION` file to bump.
+2. `README.md` — the status line and, at a minor release, the install
    constraint (`~> 0.2`). A patch release leaves the constraint alone.
 
 Confirm the target tag does not exist. The first command must print nothing and
@@ -53,15 +55,14 @@ make build vet lint
 make coverage
 make coverage-gate
 make coverage-readme-check
-make release-check
 make validate-examples
 make generate
 git diff --exit-code
 ```
 
-`make release-check` enforces the three-file agreement above. It also runs in the
-`Test` job, so a mismatch fails the pull request instead of the release after the
-merge.
+`make release-check` derives the version from the last tag, so it reports this
+release as ahead of that tag until the tag exists; run it after step 3 to prove
+the merged tree, the changelog and the README agree.
 
 `git diff --exit-code` must be silent. `make generate` rewrites `docs/`, so a
 dirty tree means the committed reference is stale. Commit the changelog and any
@@ -117,39 +118,35 @@ gh run watch "$RUN" --exit-status
 A failed queue run ejects the pull request: fix the branch, push, and enqueue
 again. Direct pushes and direct merges do not work; the ruleset rejects them.
 
-## 3. Tag and publish
+## 3. Cut the tag and publish
 
-Merging the release pull request is the release trigger. The merge commit
-changes `VERSION`, which runs `Release` on `main`; a merge that does not touch
-`VERSION` does nothing.
-
-Confirm the run started on the merge commit of the release pull request:
+Merging the release pull request is not a release: no file names the version, so
+nothing on `main` can trigger a tag. Cut a signed tag on the merge commit you
+intend to ship and push it; that push is the release trigger.
 
 ```bash
-git fetch origin main
-git log --oneline -1 origin/main
-gh run list --workflow=release.yml --limit 3
+git switch main
+git pull --ff-only
+git tag -s v0.2.1 -m "Release v0.2.1"
+git tag -v v0.2.1
+git push origin v0.2.1
 ```
 
-`Release` runs two jobs through the kit's reusable release workflow. `Tag the
-release`:
+The signing key must be the one registered to the account that owns the tagger
+email; the same key is held in the `GPG_PRIVATE_KEY`/`PASSPHRASE` secrets for the
+checksum signature.
 
-1. checks out the merged commit with full history,
-2. runs only when the pushed range changed `VERSION` (a job guard, so a
-   multi-commit push is handled and a dispatch always runs),
-3. reads the version from `VERSION`,
-4. skips cleanly when `v<version>` already points at that commit, and fails when
-   the tag exists on another commit,
-5. refuses to continue when `CHANGELOG.md` has no dated section for the version,
-6. imports `GPG_PRIVATE_KEY`/`PASSPHRASE` and creates an annotated, signed tag
-   with the key's identity,
-7. pushes the tag and hands it to GoReleaser as a job output.
+In order, the `Release` workflow:
 
-`GoReleaser` then checks that tag out in the same run: a tag pushed with the
-default `GITHUB_TOKEN` does not trigger other workflows, so there is no second
-run to rely on and the `push: tags: v*` trigger is only for tags pushed from a
-maintainer machine. `GoReleaser` builds the provider, signs the checksum file,
-attests provenance, generates the SBOM and replaces the GitHub release assets.
+1. checks out the tagged commit with full history,
+2. imports `GPG_PRIVATE_KEY`/`PASSPHRASE`,
+3. builds the provider, signs the checksum file, attests provenance, generates
+   the SBOM and publishes the GitHub release for the tag.
+
+The kit's tag-creation job does not run without a version file, so no workflow
+invents a version: the tag you push is exactly what ships. GoReleaser runs with
+`release.mode: replace`, so a rerun of an existing tag replaces its assets
+without moving the tag.
 
 Watch the run:
 
@@ -159,27 +156,18 @@ RUN=$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].
 gh run watch "$RUN" --exit-status
 ```
 
-The run appears at the top of the list as soon as the push lands.
-
 ### Manual dispatch
 
-Dispatch `Release` when a merge cannot be the trigger: the first tag of a
-line, a retry after a failure that happened before the tag was pushed, or an
-explicit version a maintainer chooses. Pass the version **without** the `v`
-prefix:
+Dispatch `Release` with an existing tag to publish or republish it. This covers
+a tag pushed without a workflow run being started, and a publish that failed
+after the tag existed:
 
 ```bash
-gh workflow run release.yml --ref main \
-  -f version=0.2.1 \
-  -f release_type=patch
+gh workflow run release.yml --ref main -f tag=v0.2.1
 ```
 
-Always pass `version`. The input is optional; when it is empty the workflow
-calculates the next version from the newest tag and `release_type`. Re-running a
-failed release without `version` would therefore tag a version nobody chose.
-With `version` set, `release_type` is still required by the dispatch form but is
-not used for the calculation. The version must already have a dated section in
-`CHANGELOG.md` on `main`; the workflow refuses an undocumented release.
+The tag must already exist. A dispatch cannot choose a new version, because
+nothing but a tag names one.
 
 ## 4. Verify
 
@@ -294,17 +282,11 @@ gh workflow run release.yml --ref main -f tag=v0.2.1
 
 `Release` checks out that tag, and GoReleaser runs with `release.mode: replace`,
 so republishing is idempotent: assets are replaced and the signed tag is
-untouched. With `tag` set, the tag job creates and pushes nothing.
+untouched.
 
-Do not re-run the release's tag job to fix a publish failure. It skips a tag
-that already points at the commit and cannot replace a release; with `version`
-empty on a dispatch it would also calculate a version nobody intended. `Release`
-with an explicit `tag` is the recovery tool.
-
-If the tag job failed *before* pushing the tag (GPG import, signing), fix the
-cause and dispatch `Release` again with the same explicit `version`. If the tag
-did reach the remote, the tag job skips it (`tag-exists: skip`) and GoReleaser
-does not run, so publish it by dispatching with `tag: vX.Y.Z` instead.
+Do not delete or move the tag to recover a publish failure. If the tag push
+never started a run, dispatch `Release` with the tag instead; if the tag itself
+was wrong, ship a new patch tag.
 
 If a published release is broken, do not delete or move a tag the Registry has
 seen. Ship a patch.

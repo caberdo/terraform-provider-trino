@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-ci.yml@v0.10.0
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-ci.yml@v0.12.0
     # GitHub validates a caller's grant against every job of the called workflow
     # before any `if:` or input is evaluated, so these are the union of what
     # provider-ci declares, not what this run happens to execute:
@@ -49,9 +49,13 @@ jobs:
       # acceptance call below. Trino has no versions job (`versions-job` stays
       # at its `false` default), so nothing reads it in this caller yet.
       versions-file: .github/trino-versions.txt
-      # A release pull request is the only change that moves VERSION: the
-      # changelog check catches a mismatch before the merge instead of after it.
+      # A release pull request is the only change that moves the changelog's
+      # newest section. The released version is the last tag, so the check
+      # compares the changelog and the README against that tag.
       changelog: true
+      # Every pull request that can change what a user sees carries a fragment
+      # in changelog.d/ instead of editing CHANGELOG.md.
+      changelog-fragments: true
       # Dependency scanning stays in the Lint & Security job, through
       # `./scripts/govulncheck.sh` and its accepted-findings list. The default
       # (`action`) would move it into a separate Vulnerability Scan job.
@@ -81,7 +85,7 @@ jobs:
   # where today it would not.
   acceptance:
     needs: ci
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-acceptance.yml@v0.10.0
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-acceptance.yml@v0.12.0
     permissions:
       contents: read
     with:
