@@ -504,4 +504,5 @@ The error classification behind these diagnostics is described in
 
 ## License
 
-Mozilla Public License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+MIT — see the [LICENSE](LICENSE) file, and [`NOTICE`](./NOTICE) for the upstream
+works this project derives from and the licence carve-outs that apply to them.

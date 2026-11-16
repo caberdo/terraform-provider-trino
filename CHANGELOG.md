@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+LICENSE:
+- **The project moves from MPL-2.0 to the MIT License.** `LICENSE` now holds the MIT text;
+  `NOTICE` records the upstream works the project derives from, including the scaffolding lineage,
+  and which third-party material the MIT licence does not cover; `README.md` states MIT. Releases
+  published up to 2026-11-16 stay available under MPL-2.0; this applies from the next release
+  onward. `main.go` was rewritten against the public `providerserver` API, so no MPL-2.0 source
+  remains in the entry point. The workflow configuration derived from
+  `caberdo/terraform-provider-gravitino` and the build/release configuration that follows
+  HashiCorp's scaffolding are called out in `NOTICE`. No provider behaviour, schema or state
+  changes.
+
 ## [0.3.0] - 2026-11-14
 
 ### Changed

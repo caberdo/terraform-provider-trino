@@ -1,9 +1,9 @@
 # NOTICE
 
 terraform-provider-trino
-Copyright 2026 The terraform-provider-trino contributors
+Copyright (c) 2026 Dennis de Jong
 
-This product is licensed under the Mozilla Public License, v. 2.0 (see `LICENSE`).
+This product is licensed under the MIT License (see `LICENSE`).
 
 ## Upstream material
 
@@ -14,7 +14,7 @@ binary.
 
 | Upstream work | Licence | What is derived | Distribution |
 |---|---|---|---|
-| HashiCorp `terraform-provider-scaffolding-framework` | MPL-2.0 | Entry point (`main.go`) and the provider build/serve pattern | Source and binary |
+| HashiCorp `terraform-provider-scaffolding-framework` | MPL-2.0 | The build/release configuration follows HashiCorp's scaffolding. `main.go` follows the published `providerserver` pattern and was written for this repository; no MPL-2.0 source is copied into it. | Build pattern only |
 | `caberdo/terraform-provider-gravitino` | Apache-2.0 | CI, release and coverage workflow configuration only; no Go source code taken | Repository configuration only, not compiled into the binary |
 | HashiCorp Terraform plugin libraries | MPL-2.0 | `terraform-plugin-framework`, `terraform-plugin-framework-validators`, `terraform-plugin-go`, `terraform-plugin-log` and `terraform-plugin-testing` are compiled into the provider and its tests; `terraform-plugin-docs` is used at build time to generate `docs/` | Binary and build tooling |
 | `github.com/trinodb/trino-go-client` | Apache-2.0 | Trino client protocol implementation used by the statement executor | Binary |
@@ -24,6 +24,20 @@ The published identifiers are the Go module path
 `github.com/caberdo/terraform-provider-trino` and the Terraform Registry
 namespace `registry.terraform.io/caberdo/trino`; the source repository is
 <https://github.com/caberdo/terraform-provider-trino>.
+
+## Licence scope
+
+The MIT licence in `LICENSE` covers this project's own source, documentation and
+configuration. It does not relicense third-party material:
+
+- `trino-go-client` and `gokrb5/v8` keep their Apache-2.0 licences.
+- The HashiCorp Terraform plugin libraries listed above remain under MPL-2.0 and
+  are compiled in unmodified.
+- Files that still carry material derived from the HashiCorp scaffolding or the
+  Apache-2.0 workflow configuration named above remain available under the
+  licence of the work they came from. This notice does not claim that every file
+  outside the entry point is free of such material; the entry point itself was
+  written for this repository.
 
 ## Third-party dependencies
 
