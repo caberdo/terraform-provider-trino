@@ -12,10 +12,10 @@ COMPOSE ?= docker compose
 # local check: TRINO_VERSIONS="484 483" make testacc-matrix
 TRINO_VERSIONS ?= $(shell tr '\n' ' ' < .github/trino-versions.txt)
 # The shared tooling for the caberdo providers: the coverage gate, merge and
-# README targets, example validation and the release-metadata check. The pin is
-# the same version the reusable workflows use, in one place so the local and CI
-# behaviour cannot drift apart.
-TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.3.0
+# README targets, example validation and the release-metadata check. Keep this
+# pin equal to the `uses:` refs in .github/workflows/*.yml: one version for the
+# local targets and the reusable workflows, so they cannot drift apart.
+TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.4.0
 
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
@@ -110,6 +110,10 @@ install: build
 	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/caberdo/trino/$(VERSION)/$$(go env GOOS)_$$(go env GOARCH)
 	cp bin/$(BINARY_NAME) ~/.terraform.d/plugins/registry.terraform.io/caberdo/trino/$(VERSION)/$$(go env GOOS)_$$(go env GOARCH)/$(BINARY_NAME)
 
+# Validate every Terraform example against the provider built from this tree.
+# tfkit builds into a temporary directory; set TFKIT_PLUGIN_DIR (or pass
+# --plugin-dir) to pin that directory, so parallel runs do not overwrite each
+# other's build.
 validate-examples:
 	$(TFKIT) examples validate --provider trino
 

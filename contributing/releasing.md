@@ -1,17 +1,17 @@
 # Releasing the provider
 
 This is the maintainer runbook for shipping a release. A release is a pull
-request that moves `VERSION` and cuts the changelog; merging it starts the
-`Create Release Tag` workflow, which signs the tag, and the `Release` workflow,
-which publishes with GoReleaser. This runbook covers that path end to end, plus
-the manual dispatch and recovery steps for the cases a merge cannot cover.
+request that moves `VERSION` and cuts the changelog; merging it runs `Release`,
+whose tag job signs the tag and whose GoReleaser job publishes it. This runbook
+covers that path end to end, plus the manual dispatch and recovery steps for the
+cases a merge cannot cover.
 
 The example version in every command is `0.2.1`. Substitute the version you are
 shipping; the tag always carries a `v` prefix. Run the commands from a clone of
 the repository with `gh` authenticated as a maintainer.
 
 You need write access to the repository. The repository also needs the two
-secrets the release workflows use: `GPG_PRIVATE_KEY` and `PASSPHRASE`. The
+secrets the release workflow uses: `GPG_PRIVATE_KEY` and `PASSPHRASE`. The
 signing key must be registered to the account that owns the tagger email,
 otherwise GitHub shows the tag as unverified even though the signature is
 valid.
@@ -60,8 +60,8 @@ git diff --exit-code
 ```
 
 `make release-check` enforces the three-file agreement above. It also runs in the
-`Test` job, so a mismatch fails the pull request instead of the tag workflow
-after the merge.
+`Test` job, so a mismatch fails the pull request instead of the release after the
+merge.
 
 `git diff --exit-code` must be silent. `make generate` rewrites `docs/`, so a
 dirty tree means the committed reference is stale. Commit the changelog and any
@@ -120,39 +120,42 @@ again. Direct pushes and direct merges do not work; the ruleset rejects them.
 ## 3. Tag and publish
 
 Merging the release pull request is the release trigger. The merge commit
-changes `VERSION`, which starts `Create Release Tag` on `main`; a merge that
-does not touch `VERSION` does nothing.
+changes `VERSION`, which runs `Release` on `main`; a merge that does not touch
+`VERSION` does nothing.
 
 Confirm the run started on the merge commit of the release pull request:
 
 ```bash
 git fetch origin main
 git log --oneline -1 origin/main
-gh run list --workflow=create-release-tag.yml --limit 3
+gh run list --workflow=release.yml --limit 3
 ```
 
-In order, the workflow:
+`Release` runs two jobs through the kit's reusable release workflow. `Tag the
+release`:
 
 1. checks out the merged commit with full history,
-2. reads the version from `VERSION`,
-3. skips cleanly when `v<version>` already points at that commit, and fails when
+2. runs only when the pushed range changed `VERSION` (a job guard, so a
+   multi-commit push is handled and a dispatch always runs),
+3. reads the version from `VERSION`,
+4. skips cleanly when `v<version>` already points at that commit, and fails when
    the tag exists on another commit,
-4. refuses to continue when `CHANGELOG.md` has no dated section for the version,
-5. imports `GPG_PRIVATE_KEY`/`PASSPHRASE` and creates an annotated, signed tag
+5. refuses to continue when `CHANGELOG.md` has no dated section for the version,
+6. imports `GPG_PRIVATE_KEY`/`PASSPHRASE` and creates an annotated, signed tag
    with the key's identity,
-6. pushes the tag,
-7. calls the `Release` workflow with that tag.
+7. pushes the tag and hands it to GoReleaser as a job output.
 
-Step 7 is explicit because a tag pushed with the default `GITHUB_TOKEN` does not
-trigger other workflows: the `push: tags: v*` trigger in `release.yml` will not
-fire for this push. `Release` builds the provider, signs the checksum file,
+`GoReleaser` then checks that tag out in the same run: a tag pushed with the
+default `GITHUB_TOKEN` does not trigger other workflows, so there is no second
+run to rely on and the `push: tags: v*` trigger is only for tags pushed from a
+maintainer machine. `GoReleaser` builds the provider, signs the checksum file,
 attests provenance, generates the SBOM and replaces the GitHub release assets.
 
 Watch the run:
 
 ```bash
-gh run list --workflow=create-release-tag.yml --limit 3
-RUN=$(gh run list --workflow=create-release-tag.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run list --workflow=release.yml --limit 3
+RUN=$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run watch "$RUN" --exit-status
 ```
 
@@ -160,13 +163,13 @@ The run appears at the top of the list as soon as the push lands.
 
 ### Manual dispatch
 
-Dispatch the tag workflow when a merge cannot be the trigger: the first tag of a
+Dispatch `Release` when a merge cannot be the trigger: the first tag of a
 line, a retry after a failure that happened before the tag was pushed, or an
 explicit version a maintainer chooses. Pass the version **without** the `v`
 prefix:
 
 ```bash
-gh workflow run create-release-tag.yml --ref main \
+gh workflow run release.yml --ref main \
   -f version=0.2.1 \
   -f release_type=patch
 ```
@@ -289,17 +292,19 @@ dispatch `Release` with the existing tag:
 gh workflow run release.yml --ref main -f tag=v0.2.1
 ```
 
-`release.yml` checks out that tag, and GoReleaser runs with
-`release.mode: replace`, so republishing is idempotent: assets are replaced and
-the signed tag is untouched.
+`Release` checks out that tag, and GoReleaser runs with `release.mode: replace`,
+so republishing is idempotent: assets are replaced and the signed tag is
+untouched. With `tag` set, the tag job creates and pushes nothing.
 
-Do not re-run `Create Release Tag` to fix a publish failure. It skips a tag that
-already points at the commit and cannot replace a release; with `version` empty
-it would also calculate a version nobody intended. `Release` with an explicit
-`tag` is the recovery tool.
+Do not re-run the release's tag job to fix a publish failure. It skips a tag
+that already points at the commit and cannot replace a release; with `version`
+empty on a dispatch it would also calculate a version nobody intended. `Release`
+with an explicit `tag` is the recovery tool.
 
-If `Create Release Tag` failed *before* pushing the tag (GPG import, signing),
-fix the cause and dispatch it again with the same explicit `version`.
+If the tag job failed *before* pushing the tag (GPG import, signing), fix the
+cause and dispatch `Release` again with the same explicit `version`. If the tag
+did reach the remote, the tag job skips it (`tag-exists: skip`) and GoReleaser
+does not run, so publish it by dispatching with `tag: vX.Y.Z` instead.
 
 If a published release is broken, do not delete or move a tag the Registry has
 seen. Ship a patch.

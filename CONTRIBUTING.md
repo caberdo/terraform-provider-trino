@@ -35,6 +35,12 @@ make coverage
 make coverage-gate
 ```
 
+`make validate-examples` runs `tfkit examples validate`, which builds the
+provider into a temporary directory and points Terraform's `dev_overrides` at it.
+Set `TFKIT_PLUGIN_DIR` (or pass `--plugin-dir` to the `tfkit` command) to choose
+that directory, so two validation runs can proceed in parallel without
+overwriting each other's build.
+
 ## Acceptance tests and the version matrix
 
 `.github/trino-versions.txt` is the single source of truth: the declared floor
@@ -164,15 +170,17 @@ job id, silently un-requires the gate**. Treat either as a breaking CI change:
 4. Verify it with the same command's `check` subcommand; it must exit 0.
 
 Both subcommands take the comma-separated list `protection-drift.yml` passes to
-`provider-protection.yml`. Run them through the kit pin the workflows use:
+`provider-protection.yml` in `required-contexts`. Run them through the kit pin
+the workflows use:
 
 ```sh
-go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.3.0 \
-  branch-protection check --contexts '<list>'
+go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.4.0 \
+  branch-protection check --contexts 'ci / Lint & Security,ci / Test'
 ```
 
-With no `--contexts` tfkit falls back to its own default, which no longer
-matches the jobs here.
+With no `--contexts` tfkit falls back to `Lint & Security,Test`, which is not a
+job name here: `check` reports that as drift, and `setup` refuses it before it
+writes anything.
 
 Never require a job that has an `if:` condition or a matrix context. Such a
 check is skipped on some PRs and sits at "Expected — Waiting for status to be
@@ -180,18 +188,25 @@ reported" forever. `Prepare Trino Matrix`, `Acceptance Tests (Trino <version>)`
 and `Check the Trino release window` are therefore not required. Do not add
 `paths:` or `branches:` filters to a workflow whose jobs are required.
 
-`tfkit branch-protection check` is read-only and exits non-zero on drift.
-`.github/workflows/protection-drift.yml` runs it weekly through the kit's
-`provider-protection.yml` and opens (or updates) one issue labelled `ci`.
+`tfkit branch-protection check --contexts 'ci / Lint & Security,ci / Test'` is
+read-only and exits non-zero on drift. `.github/workflows/protection-drift.yml`
+runs it weekly through the kit's `provider-protection.yml` and opens (or updates)
+one issue labelled `ci`.
 
 ### Emergency procedure
 
 If `main` must be fixed while the gate is red, disable the ruleset explicitly
-(`tfkit branch-protection setup` installs it with `enforcement: active`; set it
-to `disabled` in repository settings or via the API), land the smallest possible
-hotfix through a PR, then re-enable it by running the setup command again. A
-visible disable/re-enable window is the documented path; do not add a bypass
-actor for convenience.
+(`tfkit branch-protection setup --contexts 'ci / Lint & Security,ci / Test'`
+installs it with `enforcement: active`; set it to `disabled` in repository
+settings or via the API), land the smallest possible hotfix through a PR, then
+re-enable it by running that same setup command again. A visible
+disable/re-enable window is the documented path; do not add a bypass actor for
+convenience.
+
+The `--contexts` flag is not optional on this path. Without it `setup` falls back
+to `Lint & Security,Test`, refuses it as "not a job name in the workflows that
+run on pull_request" and exits non-zero before touching the ruleset, so a
+recovery run spelled without it leaves `main` unprotected.
 
 ### TODO: second maintainer
 
@@ -204,15 +219,26 @@ the kit and is installed here by re-running the setup command.
 ## Releasing
 
 A release is a pull request that moves `VERSION`, cuts the `CHANGELOG.md`
-`Unreleased` section and updates the README install constraint. Merging it
-starts the `Create Release Tag` workflow, which signs the tag and calls
-`Release`; a merge that leaves `VERSION` alone never releases.
+`Unreleased` section and updates the README install constraint. Merging it runs
+`Release`; a merge that leaves `VERSION` alone creates no tag and publishes
+nothing.
 
-The manual `Create Release Tag` dispatch remains for the cases the merge cannot
-cover, and `Release` with an existing tag republishes a failed one. The full
-path, including verification and recovery, is in
-[`contributing/releasing.md`](contributing/releasing.md). Do not re-run
-`Create Release Tag` to recover a failed publish.
+`Release` runs two jobs through the kit's reusable release workflow: `Tag the
+release` runs when the pushed range changed `VERSION` (a job guard, so a
+multi-commit push works too), resolves the version — from `VERSION` on a push,
+from the `version` input on a dispatch, else from a `release_type` bump of the
+latest tag — refuses a version the changelog does not date, and pushes a signed
+tag. `GoReleaser` then checks that tag out in the same run and builds, attests,
+SBOMs and publishes the release; it is skipped whenever no tag was created.
+
+An existing tag that already points at this commit is not an error
+(`tag-exists: skip`), so re-running a release that already tagged does not fail.
+The manual dispatch covers what the merge cannot: the first tag of a new line, a
+re-tag after a failure that happened before the tag was pushed, and republishing
+an existing tag by passing `tag: vX.Y.Z`. The former separate
+`Create Release Tag` workflow no longer exists: its tag job is now the first job
+of `Release`. The full path, including verification and recovery, is in
+[`contributing/releasing.md`](contributing/releasing.md).
 
 ## Commits
 
