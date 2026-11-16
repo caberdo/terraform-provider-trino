@@ -15,7 +15,7 @@ TRINO_VERSIONS ?= $(shell tr '\n' ' ' < .github/trino-versions.txt)
 # README targets, example validation and the release-metadata check. Keep this
 # pin equal to the `uses:` refs in .github/workflows/*.yml: one version for the
 # local targets and the reusable workflows, so they cannot drift apart.
-TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.4.0
+TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.5.0
 
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
@@ -42,13 +42,14 @@ coverage-merge:
 
 # Regenerate the coverage badge and floor statement in README.md from
 # .github/coverage-baseline.txt; `make coverage-readme-check` fails when the
-# committed README has drifted from the baseline. Both name `make coverage-gate`
-# as the gate, so the sentence points at a target rather than a script.
+# committed README has drifted from the baseline. tfkit renders the sentence
+# around `make coverage-gate` itself, and the `ci` job re-runs this check
+# (`coverage-readme-in-test`), so the local and CI verdicts use one default.
 coverage-readme:
-	$(TFKIT) coverage readme --gate-command 'make coverage-gate'
+	$(TFKIT) coverage readme
 
 coverage-readme-check:
-	$(TFKIT) coverage readme --check --gate-command 'make coverage-gate'
+	$(TFKIT) coverage readme --check
 
 # Fail when coverage.out (unit + protocol) is below the floor in
 # .github/coverage-baseline.txt. Acceptance coverage is reported separately and
