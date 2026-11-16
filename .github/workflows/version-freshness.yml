@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   freshness:
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-freshness.yml@v0.12.0
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-freshness.yml@v0.13.0
     # `issues: write` opens or updates the single stale-matrix issue.
     permissions:
       contents: read

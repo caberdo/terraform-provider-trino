@@ -1,9 +1,10 @@
 # Releasing the provider
 
 This is the maintainer runbook for shipping a release. A release is a signed
-`v*` tag: the last tag is the released version, and this repository carries no
-`VERSION` file. The release pull request assembles `CHANGELOG.md` from the
-fragments in `changelog.d/` and, at a minor release, updates the README install
+`v*` tag cut after the release pull request merges: the newest `CHANGELOG.md`
+section names the version, and this repository carries no `VERSION` file. The
+release pull request assembles `CHANGELOG.md` from the fragments in
+`changelog.d/` and, at a minor release, updates the README install
 constraint; merging it publishes nothing. Pushing the signed tag is what starts
 the `Release` workflow, which publishes the release with GoReleaser. This
 runbook covers that path end to end, plus the manual dispatch and recovery steps
@@ -60,9 +61,11 @@ make generate
 git diff --exit-code
 ```
 
-`make release-check` derives the version from the last tag, so it reports this
-release as ahead of that tag until the tag exists; run it after step 3 to prove
-the merged tree, the changelog and the README agree.
+`make release-check` derives the version from the newest `CHANGELOG.md` section
+and compares it with the README install constraint. Before the tag exists it
+reports `pending release`; after step 3 it reports `released`. It exits 0
+whenever the changelog and the README agree, so run it here and again after the
+tag.
 
 `git diff --exit-code` must be silent. `make generate` rewrites `docs/`, so a
 dirty tree means the committed reference is stale. Commit the changelog and any
@@ -120,9 +123,9 @@ again. Direct pushes and direct merges do not work; the ruleset rejects them.
 
 ## 3. Cut the tag and publish
 
-Merging the release pull request is not a release: no file names the version, so
-nothing on `main` can trigger a tag. Cut a signed tag on the merge commit you
-intend to ship and push it; that push is the release trigger.
+Merging the release pull request is not a release: the changelog names the
+version, but no workflow cuts a tag on a merge. Cut a signed tag on the merge
+commit you intend to ship and push it; that push is the release trigger.
 
 ```bash
 git switch main
