@@ -1,0 +1,10 @@
+# Deliberate deviations from the canonical scaffold in caberdo/terraform-provider-kit.
+# One `path: reason` per line. The reason is required; a path the scaffold does not
+# check is a configuration error. Keep this list short: a file belongs here only when
+# this repository's version is more correct than the scaffold's, not merely different.
+CHANGELOG.md: released history is trino's own record and must not be regenerated; the canonical file is an empty template
+SECURITY.md: trino's policy names the controls this provider actually has (insecure_skip_verify is test-only, catalog credentials go through sensitive_properties, password auth is rejected over plain HTTP) and cites the maintainer's published GPG key; the canonical text claims dependency-review, a markdown link check and a committed .github/release-signing-key.asc that this repository does not have
+CONTRIBUTING.md: trino's guide carries the binding spec and plan locations, the coverage-floors.txt per-function gate beside the module floor, the fuzz targets and the commit conventions; the canonical text documents make scaffold-check, which this repository's GNUmakefile does not provide
+CODE_OF_CONDUCT.md: the repository version names the enforcement contact (dennis@dejong.ovh) and lists unacceptable behaviour; the canonical text drops both
+GOVERNANCE.md: adopted from the scaffold with the release-continuity paragraph corrected: the public GPG key is published on the maintainer's GitHub account, not committed at .github/release-signing-key.asc
+ROADMAP.md: adopted from the scaffold with the "landed already" list corrected: dependency-review, the markdown link check and make scaffold-check are not enabled here; the scaffold row names the tfkit command instead

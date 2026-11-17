@@ -1,50 +1,71 @@
 ## Description
 
-<!-- What changes and why. -->
+### Type of Change
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Documentation update
+- [ ] Refactoring (no functional changes, code improvement)
 
-## Linked Issues
+### What does this PR do?
 
-<!-- Fixes #123 -->
+<!-- Provide a clear description of what this PR does and why. -->
 
-## Scope / owned paths
+### How was this change tested?
 
 <!--
-State the task's exclusive write paths and confirm the diff stays inside them.
-For a lane task, copy the paths from the plan's lane-ownership table.
+Describe how you tested this change:
+- Unit tests
+- Acceptance tests (run locally with Docker or Podman)
+- Manual testing scenarios
 -->
 
-- Owned paths:
-- [ ] No writes outside the owned paths (`git diff --name-only <base>...HEAD`)
+### Related Issues
 
-## Testing
+<!-- Link to related issues using: Fixes #123, Related to #456 -->
 
-- [ ] `make build` succeeds
-- [ ] `make vet` is clean
-- [ ] `make test` passes (unit tests)
-- [ ] `make lint` is clean
-- [ ] `make generate` run and `docs/` committed, if a schema changed
-- [ ] `make validate-examples` passes, if an example changed
-- [ ] New or changed resources/data sources have unit tests for schema, create, update, delete and import (valid + invalid)
-- [ ] A regression test covers this change, if it is a bug fix
-- [ ] `make testacc` passes, if CRUD behaviour through Terraform Core changed
-- [ ] `make coverage-gate` passes (unit + protocol profile; acceptance coverage is reported, not gated)
+## Testing Checklist
 
-## Documentation
+- [ ] Unit tests added/updated
+- [ ] Acceptance tests added/updated (for new resources)
+- [ ] `make fmt` passes
+- [ ] `make vet` passes
+- [ ] `make lint` passes
+- [ ] Tests run locally before pushing
 
-- [ ] `make generate` run (if a schema changed; never edit `docs/` by hand)
-- [ ] Examples added or updated under `examples/` (if user-facing behaviour changed)
-- [ ] README/CHANGELOG updated, if the change affects usage or releases
+## Documentation Checklist
 
-## Checklist
+- [ ] Example added to `examples/` directory (the documentation source)
+- [ ] `make generate` run and the regenerated `docs/` committed
+- [ ] `changelog.d/` fragment added for a user-visible change
+- [ ] Schema attributes have descriptions
+- [ ] Import section documented (if applicable)
 
-- [ ] SQL identifiers go through `trino.QuoteIdentifier`; literals through `trino.QuoteLiteral`; values are bound with `?`
-- [ ] Trino errors go through `trino.SourceOf` / `trino.IsNotFound`
-- [ ] `tflog.Debug` at the start and end of Create/Read/Update/Delete
-- [ ] Import parses and validates the documented ID format
-- [ ] Attributes Trino cannot update in place carry `RequiresReplace()`
-- [ ] Unreadable attributes preserve state rather than being zeroed
-- [ ] Resource or data source registered in `internal/provider/provider.go`
+## Checklist for Specific Changes
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for the development setup and the
-full pull request process, and [ARCHITECTURE.md](../ARCHITECTURE.md) for how the
-provider is put together.
+### New Resources
+- [ ] Client method added for the server API the resource needs
+- [ ] Resource file implements `resource.Resource` and `resource.ResourceWithImportState`
+- [ ] Registered in the provider's `Resources()` method
+- [ ] Schema attributes described, enumerations validated, sensitive fields marked
+- [ ] ImportState implemented
+- [ ] Documentation + example
+
+### New Data Sources
+- [ ] Client method added for the server API the data source needs
+- [ ] Data source file implements `datasource.DataSource`
+- [ ] Registered in the provider's `DataSources()` method
+- [ ] Schema attributes described
+- [ ] Documentation + example
+
+### Bug Fixes
+- [ ] Root cause identified
+- [ ] Regression test added
+- [ ] Edge cases considered
+
+## Provider-specific checks
+
+Each repository appends its own checklist items below this heading; `tfkit scaffold fix` preserves everything below it verbatim and `tfkit scaffold check` ignores it.
+
+- [ ] Every SQL identifier goes through `trino.QuoteIdentifier`; every literal
+  through `trino.QuoteLiteral`; query values are bound with `?`.
