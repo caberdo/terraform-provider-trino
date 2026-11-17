@@ -16,9 +16,9 @@ updates:
       include: "scope"
 
   # The stack mixes the test toolchain with the server under test. Only `golang`
-  # may move: `trinodb/trino` stays on the tags the version matrix
-  # (.github/trino-versions.txt) drives, and an update against it would silently
-  # change which server version the suite runs against.
+  # may move: the upstream server image stays on the tags the version matrix
+  # (.github/trino-versions.txt) drives, and an update against it would silently change
+  # which server version the suite runs against.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:

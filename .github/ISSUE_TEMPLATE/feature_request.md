@@ -30,4 +30,4 @@ resource "trino_..." "example" {
 
 ## Additional Context
 
-<!-- Links to Trino SQL docs, related issues, etc -->
+<!-- Upstream API docs, related issues, etc -->

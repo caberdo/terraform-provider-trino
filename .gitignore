@@ -1,3 +1,6 @@
+# Git worktrees (parallel lanes)
+.worktrees/
+
 # Binaries
 *.exe
 *.exe~
@@ -54,3 +57,7 @@ dev.tfrc
 *.pfx
 *.crt
 *.keytab
+
+# Python
+__pycache__/
+*.pyc
