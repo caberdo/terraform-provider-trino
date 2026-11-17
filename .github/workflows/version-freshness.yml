@@ -1,19 +1,25 @@
-# Compares the supported Trino matrix with the upstream release window and opens
-# (or updates) exactly one issue when the matrix lags. It never edits the matrix
-# itself: a human or an agent lands the bump pull request.
+# Monitors the Trino maintenance window: compares the supported matrix with the
+# upstream releases, canaries the newest release the matrix does not cover, and
+# checks this repository's kit pin. Each job reports at most one labelled issue
+# and closes it when the finding goes away. The workflow never edits the matrix
+# or the pin: the bump stays a decision.
 #
-# The comparison is the reusable workflow in caberdo/terraform-provider-kit.
-name: Version matrix freshness
+# One weekly cron (Monday 06:00 UTC) drives all three jobs. A caller file cannot
+# bind two crons to different jobs, and the maintainer chose weekly for the
+# canary. Re-checking the version window weekly costs one API call and updates
+# the existing issue in place, so the quieter monthly cadence buys nothing.
+name: Version maintenance
 
 on:
   schedule:
-    # Monthly, on the first day at 06:00 UTC.
-    - cron: "0 6 1 * *"
+    # Weekly, Monday at 06:00 UTC.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
   issues: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}
@@ -21,14 +27,27 @@ concurrency:
 
 jobs:
   freshness:
-    uses: caberdo/terraform-provider-kit/.github/workflows/provider-freshness.yml@v0.13.0
-    # `issues: write` opens or updates the single stale-matrix issue.
+    uses: caberdo/terraform-provider-kit/.github/workflows/provider-freshness.yml@v0.15.0
+    # `issues: write` opens or updates one labelled issue per category;
+    # `actions: read` lets the canary report read the failing job's log.
     permissions:
       contents: read
       issues: write
+      actions: read
     with:
       provider-display: Trino
       versions-file: .github/trino-versions.txt
       upstream: trinodb/trino
-      # Trino's releases are tagged `v476` while the matrix holds bare `476`.
-      strip-v: true
+      # Trino publishes stable releases under bare tags (`484`), exactly as the
+      # matrix holds them, so no prefix is stripped. Non-release tags such as
+      # `477-test` exist but are not GitHub releases and never reach this list.
+      strip-v: false
+      # No suffix is stripped: the stable tag is bare (`484`).
+      strip-suffix: ""
+      canary: true
+      version-env: TRINO_VERSION
+      expect-version-env: TRINO_EXPECT_VERSION
+      # The canary's unit profile must cover the same packages the Test
+      # workflow does.
+      packages: ./internal/...
+      kit-check: true
