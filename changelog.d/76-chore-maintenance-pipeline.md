@@ -1,1 +1,0 @@
-The repository now runs a **weekly maintenance pipeline**: it reports which upstream release the supported-versions matrix does not cover, runs the acceptance suite against that release as a canary, and reports when the repository is behind the shared CI kit. Findings appear as one issue per category and close themselves when resolved.

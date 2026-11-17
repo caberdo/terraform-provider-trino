@@ -55,7 +55,7 @@ terraform {
   required_providers {
     trino = {
       source  = "caberdo/trino"
-      version = "~> 0.3"
+      version = "~> 0.4"
     }
   }
 }
