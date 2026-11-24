@@ -15,7 +15,7 @@ TRINO_VERSIONS ?= $(shell tr '\n' ' ' < .github/trino-versions.txt)
 # README targets, example validation and the release-metadata check. Keep this
 # pin equal to the `uses:` refs in .github/workflows/*.yml: one version for the
 # local targets and the reusable workflows, so they cannot drift apart.
-TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.16.0
+TFKIT ?= go run github.com/caberdo/terraform-provider-kit/cmd/tfkit@v0.17.0
 
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
